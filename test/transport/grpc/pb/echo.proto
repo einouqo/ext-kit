@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package ext_kit.test.pb;
+
+import "google/protobuf/duration.proto";
+
+service Echo {
+  rpc Unary (EchoRequest) returns (EchoResponse) {}
+  rpc InnerStream (EchoRequest) returns (stream EchoResponse) {}
+  rpc OuterStream (stream EchoRequest) returns (EchoResponse) {}
+  rpc BiStream (stream EchoRequest) returns (stream EchoResponse) {}
+}
+
+message EchoRequest {
+  EchoPayload payload = 1;
+  google.protobuf.Duration latency = 2;
+  oneof options {
+    bool is_error = 3;
+    uint32 repeat = 4;
+  }
+}
+
+message EchoResponse {
+  repeated EchoPayload payloads = 1;
+}
+
+message EchoPayload {
+  string msg = 1;
+}
+

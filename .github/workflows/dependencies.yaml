@@ -1,0 +1,23 @@
+name: Dependencies
+on: [ workflow_call ]
+permissions:
+  contents: read
+env:
+  GOMODCACHE: /tmp/go/pkg/mod
+jobs:
+  go-mod:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: connect go mod cache
+        id: cache-gomod
+        uses: actions/cache@v3
+        with:
+          path: /tmp/go/pkg/mod
+          key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
+      - name: prepare go mod directory
+        run: mkdir -p $GOMODCACHE
+      - name: download golang modules
+        if: steps.cache-gomod.outputs.cache-hit != 'true'
+        run: go mod download
