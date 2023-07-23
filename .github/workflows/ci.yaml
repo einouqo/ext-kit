@@ -1,0 +1,19 @@
+name: CI
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ release/*, main ]
+permissions:
+  contents: read
+jobs:
+  dependencies:
+    uses: ./.github/workflows/dependencies.yaml
+    secrets: inherit
+  linters:
+    needs: [ dependencies ]
+    uses: ./.github/workflows/linters.yaml
+  tests:
+    needs: [ dependencies ]
+    uses: ./.github/workflows/tests.yaml

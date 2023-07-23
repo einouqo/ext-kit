@@ -1,0 +1,31 @@
+name: Linters
+on: [ workflow_call ]
+permissions:
+  contents: read
+env:
+  GOMODCACHE: /tmp/go/pkg/mod
+jobs:
+  golangci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: connect go mod cache
+        id: cache-gomod
+        uses: actions/cache@v3
+        with:
+          path: /tmp/go/pkg/mod
+          key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
+      - name: setup golang
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.19'
+      - name: setup golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: v1.50.1
+      - name: check cache
+        if: steps.cache-gomod.outputs.cache-hit != 'true'
+        run: exit 1
+      - name: run golangci-lint
+        run: golangci-lint run
