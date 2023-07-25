@@ -129,6 +129,7 @@ func TestStreamWS_error(t *testing.T) {
 			sendC <- req
 			mu.Unlock()
 		}
+		time.Sleep(100 * time.Millisecond) // wait for server to process all messages
 	}()
 
 	receive, stop, err := client.Stream(ctx, sendC)
