@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/einouqo/ext-kit/endpoint"
+	"github.com/einouqo/ext-kit/util"
 )
 
 type Server[IN, OUT any] struct {
@@ -86,6 +87,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return multierror.Append(err, conn.Close()).ErrorOrNil()
 	}
+	halt := util.NewOnce(stop)
 
 	pongC := make(chan struct{})
 	defer close(pongC)
@@ -103,7 +105,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		defer close(inC)
 		defer func() {
 			if err != nil {
-				stop()
+				halt.Exec()
 			}
 		}()
 		for {
@@ -144,7 +146,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				),
 			).ErrorOrNil()
 		}()
-		defer stop()
+		defer halt.Exec()
 		for {
 			out, err := receive()
 			switch {

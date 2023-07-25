@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/einouqo/ext-kit/endpoint"
+	"github.com/einouqo/ext-kit/util"
 )
 
 type HandlerUnary interface {
@@ -179,15 +180,15 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 	for _, f := range srv.opts.after {
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
-	if len(mdHeader) > 0 {
-		if err = grpc.SendHeader(ctx, mdHeader); err != nil {
-			return ctx, err
-		}
-	}
 
 	group := multierror.Group{}
 	group.Go(func() error {
 		defer stop()
+		if len(mdHeader) > 0 {
+			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
+				return err
+			}
+		}
 		for {
 			out, err := receive()
 			switch {
@@ -400,15 +401,11 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	if err != nil {
 		return ctx, err
 	}
+	halt := util.NewOnce(stop)
 
 	mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
 	for _, f := range srv.opts.after {
 		ctx = f(ctx, &mdHeader, &mdTrailer)
-	}
-	if len(mdHeader) > 0 {
-		if err = grpc.SendHeader(ctx, mdHeader); err != nil {
-			return ctx, err
-		}
 	}
 
 	doneC := make(chan struct{})
@@ -417,7 +414,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 		defer close(inC)
 		defer func() {
 			if err != nil {
-				stop()
+				halt.Exec()
 			}
 		}()
 		for {
@@ -442,7 +439,12 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	})
 	group.Go(func() error {
 		defer close(doneC)
-		defer stop()
+		defer halt.Exec()
+		if len(mdHeader) > 0 {
+			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
+				return err
+			}
+		}
 		for {
 			out, err := receive()
 			switch {
