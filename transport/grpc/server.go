@@ -14,7 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/util"
 )
 
 type HandlerUnary interface {
@@ -141,6 +140,7 @@ func NewServerInnerStream[IN, OUT any](
 
 func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc.ServerStream) (ctx context.Context, err error) {
 	ctx = s.Context()
+
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
@@ -181,9 +181,10 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 
+	doneC := make(chan struct{})
 	group := multierror.Group{}
 	group.Go(func() error {
-		defer stop()
+		defer close(doneC)
 		if len(mdHeader) > 0 {
 			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
 				return err
@@ -210,7 +211,20 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 			}
 		}
 	})
-	if err := group.Wait().ErrorOrNil(); err != nil {
+	control := multierror.Group{}
+	control.Go(func() error {
+		defer stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-doneC:
+			return nil
+		}
+	})
+	if err := multierror.Append(
+		group.Wait(),
+		control.Wait(),
+	).ErrorOrNil(); err != nil {
 		return ctx, err
 	}
 
@@ -252,6 +266,7 @@ func NewServerOuterStream[RECEIVE proto.Message, IN, OUT any](
 
 func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx context.Context, err error) {
 	ctx = s.Context()
+
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
@@ -370,7 +385,9 @@ func NewServerBiStream[RECEIVE proto.Message, IN, OUT any](
 }
 
 func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx context.Context, err error) {
-	ctx = s.Context()
+	ctx, cancel := context.WithCancel(s.Context())
+	defer cancel()
+
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
@@ -401,7 +418,6 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	if err != nil {
 		return ctx, err
 	}
-	halt := util.NewOnce(stop)
 
 	mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
 	for _, f := range srv.opts.after {
@@ -414,7 +430,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 		defer close(inC)
 		defer func() {
 			if err != nil {
-				halt.Exec()
+				cancel()
 			}
 		}()
 		for {
@@ -439,7 +455,6 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	})
 	group.Go(func() error {
 		defer close(doneC)
-		defer halt.Exec()
 		if len(mdHeader) > 0 {
 			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
 				return err
@@ -466,7 +481,20 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 			}
 		}
 	})
-	if err := group.Wait().ErrorOrNil(); err != nil {
+	control := multierror.Group{}
+	control.Go(func() error {
+		defer stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-doneC:
+			return nil
+		}
+	})
+	if err := multierror.Append(
+		group.Wait(),
+		control.Wait(),
+	).ErrorOrNil(); err != nil {
 		return ctx, err
 	}
 

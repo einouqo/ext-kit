@@ -13,7 +13,6 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/util"
 )
 
 type Server[IN, OUT any] struct {
@@ -68,6 +67,9 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	headers := &http.Header{}
 	for _, f := range s.opts.before {
 		ctx = f(ctx, r.Header, headers)
@@ -87,7 +89,6 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return multierror.Append(err, conn.Close()).ErrorOrNil()
 	}
-	halt := util.NewOnce(stop)
 
 	pongC := make(chan struct{})
 	defer close(pongC)
@@ -105,7 +106,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		defer close(inC)
 		defer func() {
 			if err != nil {
-				halt.Exec()
+				cancel()
 			}
 		}()
 		for {
@@ -146,7 +147,6 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				),
 			).ErrorOrNil()
 		}()
-		defer halt.Exec()
 		for {
 			out, err := receive()
 			switch {
@@ -174,6 +174,15 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 
 	timeoutC := make(chan struct{})
 	control := multierror.Group{}
+	control.Go(func() error {
+		defer stop()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-doneC:
+			return nil
+		}
+	})
 	control.Go(func() error {
 		select {
 		case <-doneC:
