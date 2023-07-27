@@ -1,5 +1,7 @@
 # Go ext kit
 
+![Go Version](https://img.shields.io/badge/go-1.19+-blue.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/einouqo/ext-kit)](https://goreportcard.com/report/github.com/einouqo/ext-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 This project is a modern Go language extension of the popular [go-kit](https://github.com/go-kit/kit) library. It includes gRPC streams and WebSocket transport implementations, which were previously absent in `go-kit`. These additions are intended to make the library more versatile for contemporary Go developers. A few packages with small yet practical functions and types are also included in this project for convenience and ease of use.
@@ -12,10 +14,9 @@ Recognizing the need for these features, I saw an opportunity to augment `go-kit
 
 ## Features
 
-- gRPC Streams: Enhanced support for client-side, server-side and bi-side streaming in Go, integrated seamlessly into `go-kit`.
-- WebSocket Transport: A robust and performant WebSocket transport layer, expanding `go-kit`'s transport capabilities to enable real-time communication.
-- Helper Functions & Types: Additional utilities to assist in rapidly building your Go applications.
-- Modern Go Compatibility: Built with the latest Go features like generics for a more flexible and powerful development experience.
+- gRPC Streams: Built to support robust client-side, server-side and bi-side streaming using Go, following the same endpoint abstraction design.
+- WebSocket Transport: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
+- Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](/xrequestid/handler.go) for requests tagging, [Chain](/util/middleware.go) for middlewares e.g.) to expedite your Go application development.
 
 ## Getting Started
 
@@ -29,7 +30,7 @@ go get github.com/einouqo/ext-kit
 
 #### gRPC Bi-Directional Streaming
 
-You can refer to the [tests](github.com/einouqo/ext-kit/test/transport/grpc) for more examples.
+You can refer to the [tests](test/transport/grpc) for more examples.
 
 **Server:**
 ```go
@@ -84,7 +85,7 @@ for {
 #### WebSocket
 The usage is pretty close to gRPC Bi-Directional Streaming, but with WebSocket transport inside.
 
-You can also refer to the [tests](github.com/einouqo/ext-kit/test/transport/ws) for more examples.
+You can also refer to the [tests](test/transport/ws) for more examples.
 
 **Server:**
 ```go
@@ -152,4 +153,4 @@ for {
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details
