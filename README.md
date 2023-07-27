@@ -14,7 +14,7 @@ Recognizing the need for these features, I saw an opportunity to augment `go-kit
 
 ## Features
 
-- gRPC Streams: Built to support robust client-side, server-side and bi-side streaming using Go, following the same endpoint abstraction design.
+- gRPC Streams: Built to support robust client-side, server-side and bi-side streaming.
 - WebSocket Transport: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
 - Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](/xrequestid/handler.go) for requests tagging, [Chain](/util/middleware.go) for middlewares e.g.) to expedite your Go application development.
 
