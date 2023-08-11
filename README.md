@@ -114,6 +114,7 @@ func closer(_ context.Context, err error) (code ws.CloseCode, msg string, deadli
 ```go
 func NewClientBinding(url url.URL, opts ...ws.ClientOption) *ClientBinding {
 	return &ClientBinding{
+		/* ... */
 		Stream: ws.NewClient(
 			url,
 			encodeRequest,
@@ -132,7 +133,7 @@ func closer(context.Context, error) (code ws.CloseCode, msg string, deadline tim
 Make a call:
 ```go
 sendC := make(chan service.EchoRequest) // send your requests to the channel in the way you want
-receive, stop, err := client.BiStream(ctx, sendC)
+receive, stop, err := client.Stream(ctx, sendC)
 if err != nil {
     // handle error
 }
