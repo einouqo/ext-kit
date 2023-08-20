@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -47,14 +48,7 @@ func NewClient[OUT, IN any](
 }
 
 func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
-	return func(ctx context.Context, receiver <-chan OUT) (rcv endpoint.Receive[IN], stop endpoint.Stop, err error) {
-		ctx, cancel := context.WithCancel(ctx)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
-
+	return func(ctx context.Context, receiver <-chan OUT) (rcv endpoint.Receive[IN], err error) {
 		headers := &http.Header{}
 		for _, f := range c.opts.before {
 			ctx = f(ctx, headers)
@@ -62,54 +56,51 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 
 		conn, _, err := c.dialer().DialContext(ctx, c.url.String(), *headers)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		for _, f := range c.opts.after {
 			f(ctx, conn)
 		}
 
-		pongC := make(chan struct{})
-		handler := conn.PongHandler()
-		conn.SetPongHandler(func(msg string) error {
-			if c.opts.heartbeat.enable {
-				pongC <- struct{}{}
-			}
-			return handler(msg)
-		})
-
-		doneC := make(chan struct{})
 		group := errgroup.Group{}
 		group.Go(func() (err error) {
-			defer close(doneC)
 			defer func() {
 				code, msg, deadline := c.closure(ctx, err)
-				conn.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(code.fastsocket(), msg),
-					deadline,
-				)
+				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+				conn.WriteControl(websocket.CloseMessage, data, deadline)
 			}()
-			for out := range receiver {
-				msg, mt, err := c.enc(ctx, out)
-				if err != nil {
-					return err
-				}
-				if err := c.updateWriteDeadline(conn); err != nil {
-					return err
-				}
-				err = conn.WriteMessage(mt.fastsocket(), msg)
-				switch {
-				case errors.Is(err, net.ErrClosed):
-					return nil
-				case err != nil:
-					return err
+			for {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out, ok := <-receiver:
+					if !ok {
+						return nil
+					}
+					msg, mt, err := c.enc(ctx, out)
+					if err != nil {
+						return err
+					}
+					if err := c.updateWriteDeadline(conn); err != nil {
+						return err
+					}
+					err = conn.WriteMessage(mt.fastsocket(), msg)
+					switch {
+					case errors.Is(err, net.ErrClosed):
+						return nil
+					case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+						return nil
+					case errors.Is(err, websocket.ErrCloseSent):
+						return nil
+					case err != nil:
+						return err
+					}
 				}
 			}
-			return nil
 		})
-		inC := make(chan IN)
-		group.Go(func() error {
+		inCh := make(chan IN)
+		group.Go(func() (err error) {
 			if c.opts.finalizer != nil {
 				defer func() {
 					for _, f := range c.opts.finalizer {
@@ -117,15 +108,14 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 					}
 				}()
 			}
-			defer close(inC)
+			defer close(inCh)
+			defer conn.Close()
 			for {
 				if err := c.updateReadDeadline(conn); err != nil {
 					return err
 				}
 				messageType, msg, err := conn.ReadMessage()
 				switch {
-				case errors.Is(err, net.ErrClosed):
-					return nil
 				case websocket.IsCloseError(err, websocket.CloseNormalClosure):
 					return nil
 				case err != nil:
@@ -136,74 +126,31 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				if err != nil {
 					return err
 				}
-				inC <- in
+				inCh <- in
 			}
 		})
 
-		timeoutC := make(chan struct{}, 1)
-		closedC := make(chan struct{})
-		group.Go(func() error {
-			defer close(closedC)
-			defer conn.Close()
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-timeoutC:
-				return nil
-			case <-doneC:
-				return nil
-			}
-		})
-		if c.opts.heartbeat.enable {
-			group.Go(func() error {
-				defer func() { timeoutC <- struct{}{} }()
-				ticker := time.NewTicker(c.opts.heartbeat.period)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-closedC:
-						return nil
-					case <-ticker.C:
-						msg, deadline := c.opts.heartbeat.pinging(ctx)
-						if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
-							return err
-						}
-					}
-					select {
-					case <-closedC:
-						return nil
-					case <-time.After(c.opts.heartbeat.await):
-						return context.DeadlineExceeded
-					case <-pongC:
-						// nothing
-					}
-					ticker.Reset(c.opts.heartbeat.period)
-				}
-			})
-		}
-
-		errC := make(chan error)
+		errCh := make(chan error)
 		go func() {
-			defer close(errC)
-			defer close(pongC)
-			defer close(timeoutC)
-			if err := group.Wait(); err != nil {
+			defer close(errCh)
+			err := group.Wait()
+			if err != nil {
 				for _, h := range c.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
-				errC <- err
+				errCh <- err
 			}
 		}()
 
 		return func() (in IN, err error) {
-			if in, ok := <-inC; ok {
+			if in, ok := <-inCh; ok {
 				return in, nil
 			}
-			if err, ok := <-errC; ok {
+			if err, ok := <-errCh; ok {
 				return in, err
 			}
 			return in, endpoint.StreamDone
-		}, cancel, nil
+		}, nil
 	}
 }
 

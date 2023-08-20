@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -68,9 +69,6 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	headers := &http.Header{}
 	for _, f := range s.opts.before {
 		ctx = f(ctx, r.Header, headers)
@@ -86,39 +84,23 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		ctx = f(ctx, conn)
 	}
 
-	inC := make(chan IN)
-	receive, stop, err := s.e(ctx, inC)
+	inCh := make(chan IN)
+	receive, err := s.e(ctx, inCh)
 	if err != nil {
 		return err
 	}
 
-	pongC := make(chan struct{})
-	defer close(pongC)
-	handler := conn.PongHandler()
-	conn.SetPongHandler(func(msg string) error {
-		if s.opts.heartbeat.enable {
-			pongC <- struct{}{}
-		}
-		return handler(msg)
-	})
-
-	doneC := make(chan struct{})
+	doneCh := make(chan struct{})
 	group := errgroup.Group{}
 	group.Go(func() (err error) {
-		defer close(inC)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
+		defer close(inCh)
+		defer conn.Close()
 		for {
 			if err := s.updateReadDeadline(conn); err != nil {
 				return err
 			}
 			messageType, msg, err := conn.ReadMessage()
 			switch {
-			case errors.Is(err, net.ErrClosed):
-				return nil
 			case websocket.IsCloseError(err, websocket.CloseNormalClosure):
 				return nil
 			case err != nil:
@@ -130,21 +112,18 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				return err
 			}
 			select {
-			case <-doneC:
+			case <-doneCh:
 				return nil
-			case inC <- in:
+			case inCh <- in:
 			}
 		}
 	})
 	group.Go(func() (err error) {
-		defer close(doneC)
+		defer close(doneCh)
 		defer func() {
 			code, msg, deadline := s.closure(ctx, err)
-			conn.WriteControl(
-				websocket.CloseMessage,
-				websocket.FormatCloseMessage(code.fastsocket(), msg),
-				deadline,
-			)
+			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+			conn.WriteControl(websocket.CloseMessage, data, deadline)
 		}()
 		for {
 			out, err := receive()
@@ -165,56 +144,58 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 			switch {
 			case errors.Is(err, net.ErrClosed):
 				return nil
+			case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+				return nil
+			case errors.Is(err, websocket.ErrCloseSent):
+				return nil
 			case err != nil:
 				return err
 			}
 		}
 	})
 
-	timeoutC := make(chan struct{}, 1)
-	defer close(timeoutC)
-	closedC := make(chan struct{})
-	group.Go(func() error {
-		defer stop()
-		defer close(closedC)
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeoutC:
-			return nil
-		case <-doneC:
-			return nil
-		}
-	})
-	if s.opts.heartbeat.enable {
-		group.Go(func() error {
-			defer func() { timeoutC <- struct{}{} }()
-			ticker := time.NewTicker(s.opts.heartbeat.period)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-closedC:
-					return nil
-				case <-ticker.C:
-					msg, deadline := s.opts.heartbeat.pinging(ctx)
-					if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
-						return err
-					}
-				}
-				select {
-				case <-closedC:
-					return nil
-				case <-time.After(s.opts.heartbeat.await):
-					return context.DeadlineExceeded
-				case <-pongC:
-					// nothing
-				}
-				ticker.Reset(s.opts.heartbeat.period)
-			}
-		})
-	}
+	//if s.opts.heartbeat.enable {
+	//	pongC := make(chan struct{})
+	//	defer close(pongC)
+	//	handler := conn.PongHandler()
+	//	conn.SetPongHandler(func(msg string) error {
+	//		pongC <- struct{}{}
+	//		return handler(msg)
+	//	})
+	//	var cancel context.CancelFunc
+	//	ctx, cancel = context.WithCancel(ctx)
+	//	group.Go(func() (err error) {
+	//		defer cancel()
+	//		ticker := time.NewTicker(s.opts.heartbeat.period)
+	//		defer ticker.Stop()
+	//		for {
+	//			select {
+	//			case <-doneCh:
+	//				return nil
+	//			case <-ticker.C:
+	//				msg, deadline := s.opts.heartbeat.pinging(ctx)
+	//				err := conn.WriteControl(websocket.PingMessage, msg, deadline)
+	//				switch {
+	//				case errors.Is(err, websocket.ErrCloseSent):
+	//					return nil
+	//				case err != nil:
+	//					return nil
+	//				}
+	//			}
+	//			select {
+	//			case <-doneCh:
+	//				return nil
+	//			case <-time.After(s.opts.heartbeat.await):
+	//				return context.DeadlineExceeded
+	//			case <-pongC:
+	//				// nothing
+	//			}
+	//			ticker.Reset(s.opts.heartbeat.period)
+	//		}
+	//	})
+	//}
 
-	if err = group.Wait(); err != nil {
+	if err := group.Wait(); err != nil {
 		return err
 	}
 

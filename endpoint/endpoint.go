@@ -37,11 +37,11 @@ func FromKit[IN, OUT any](e kit.Endpoint) Unary[IN, OUT] {
 	}
 }
 
-type InnerStream[IN, OUT any] func(ctx context.Context, request IN) (Receive[OUT], Stop, error)
+type InnerStream[IN, OUT any] func(ctx context.Context, request IN) (Receive[OUT], error)
 
 type OuterStream[IN, OUT any] func(ctx context.Context, receiver <-chan IN) (response OUT, err error)
 
-type BiStream[IN, OUT any] func(ctx context.Context, receiver <-chan IN) (Receive[OUT], Stop, error)
+type BiStream[IN, OUT any] func(ctx context.Context, receiver <-chan IN) (Receive[OUT], error)
 
 type Endpoint[IN, OUT any] interface {
 	Unary[IN, OUT] | InnerStream[IN, OUT] | OuterStream[IN, OUT] | BiStream[IN, OUT]

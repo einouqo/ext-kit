@@ -57,19 +57,19 @@ func NewServerUnary[IN, OUT any](
 }
 
 func (srv ServerUnary[IN, OUT]) ServeUnary(ctx context.Context, req proto.Message) (ctxt context.Context, resp proto.Message, err error) {
+	if len(srv.opts.finalizer) > 0 {
+		defer func() {
+			for _, f := range srv.opts.finalizer {
+				f(ctx, err)
+			}
+		}()
+	}
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
 				for _, h := range srv.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
-			}
-		}()
-	}
-	if len(srv.opts.finalizer) > 0 {
-		defer func() {
-			for _, f := range srv.opts.finalizer {
-				f(ctx, err)
 			}
 		}()
 	}
@@ -142,19 +142,19 @@ func NewServerInnerStream[IN, OUT any](
 func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc.ServerStream) (ctx context.Context, err error) {
 	ctx = s.Context()
 
+	if len(srv.opts.finalizer) > 0 {
+		defer func() {
+			for _, f := range srv.opts.finalizer {
+				f(ctx, err)
+			}
+		}()
+	}
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
 				for _, h := range srv.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
-			}
-		}()
-	}
-	if len(srv.opts.finalizer) > 0 {
-		defer func() {
-			for _, f := range srv.opts.finalizer {
-				f(ctx, err)
 			}
 		}()
 	}
@@ -172,7 +172,7 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 		return ctx, err
 	}
 
-	receive, stop, err := srv.e(ctx, in)
+	receive, err := srv.e(ctx, in)
 	if err != nil {
 		return ctx, err
 	}
@@ -182,10 +182,8 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 
-	doneC := make(chan struct{})
 	group := errgroup.Group{}
 	group.Go(func() error {
-		defer close(doneC)
 		if len(mdHeader) > 0 {
 			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
 				return err
@@ -210,15 +208,6 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 			case err != nil:
 				return err
 			}
-		}
-	})
-	group.Go(func() error {
-		defer stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-doneC:
-			return nil
 		}
 	})
 	if err := group.Wait(); err != nil {
@@ -264,19 +253,19 @@ func NewServerOuterStream[RECEIVE proto.Message, IN, OUT any](
 func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx context.Context, err error) {
 	ctx = s.Context()
 
+	if len(srv.opts.finalizer) > 0 {
+		defer func() {
+			for _, f := range srv.opts.finalizer {
+				f(ctx, err)
+			}
+		}()
+	}
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
 				for _, h := range srv.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
-			}
-		}()
-	}
-	if len(srv.opts.finalizer) > 0 {
-		defer func() {
-			for _, f := range srv.opts.finalizer {
-				f(ctx, err)
 			}
 		}()
 	}
@@ -289,11 +278,11 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 		ctx = f(ctx, md)
 	}
 
-	inC := make(chan IN)
-	doneC := make(chan struct{})
+	inCh := make(chan IN)
+	doneCh := make(chan struct{})
 	group := errgroup.Group{}
 	group.Go(func() error {
-		defer close(inC)
+		defer close(inCh)
 		for {
 			msg := srv.reflectReceive.Interface().(proto.Message)
 			err := s.RecvMsg(msg)
@@ -308,15 +297,15 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 				return err
 			}
 			select {
-			case <-doneC:
+			case <-doneCh:
 				return nil
-			case inC <- in:
+			case inCh <- in:
 			}
 		}
 	})
 	group.Go(func() error {
-		defer close(doneC)
-		out, err := srv.e(ctx, inC)
+		defer close(doneCh)
+		out, err := srv.e(ctx, inCh)
 		if err != nil {
 			return err
 		}
@@ -329,6 +318,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 				return err
 			}
 		}
+
 		msg, err := srv.enc(ctx, out)
 		if err != nil {
 			return err
@@ -340,6 +330,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 		case err != nil:
 			return err
 		}
+
 		if len(mdTrailer) > 0 {
 			if err = grpc.SetTrailer(ctx, mdTrailer); err != nil {
 				return err
@@ -382,22 +373,21 @@ func NewServerBiStream[RECEIVE proto.Message, IN, OUT any](
 }
 
 func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx context.Context, err error) {
-	ctx, cancel := context.WithCancel(s.Context())
-	defer cancel()
+	ctx = s.Context()
 
+	if len(srv.opts.finalizer) > 0 {
+		defer func() {
+			for _, f := range srv.opts.finalizer {
+				f(ctx, err)
+			}
+		}()
+	}
 	if len(srv.opts.errHandlers) > 0 {
 		defer func() {
 			if err != nil {
 				for _, h := range srv.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
-			}
-		}()
-	}
-	if len(srv.opts.finalizer) > 0 {
-		defer func() {
-			for _, f := range srv.opts.finalizer {
-				f(ctx, err)
 			}
 		}()
 	}
@@ -410,8 +400,8 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 		ctx = f(ctx, md)
 	}
 
-	inC := make(chan IN)
-	receive, stop, err := srv.e(ctx, inC)
+	inCh := make(chan IN)
+	receive, err := srv.e(ctx, inCh)
 	if err != nil {
 		return ctx, err
 	}
@@ -421,15 +411,10 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 
-	doneC := make(chan struct{})
+	doneCh := make(chan struct{})
 	group := errgroup.Group{}
-	group.Go(func() (err error) {
-		defer close(inC)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
+	group.Go(func() error {
+		defer close(inCh)
 		for {
 			msg := srv.reflectReceive.Interface().(proto.Message)
 			err := s.RecvMsg(msg)
@@ -444,14 +429,14 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 				return err
 			}
 			select {
-			case <-doneC:
+			case <-doneCh:
 				return nil
-			case inC <- in:
+			case inCh <- in:
 			}
 		}
 	})
 	group.Go(func() error {
-		defer close(doneC)
+		defer close(doneCh)
 		if len(mdHeader) > 0 {
 			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
 				return err
@@ -476,15 +461,6 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 			case err != nil:
 				return err
 			}
-		}
-	})
-	group.Go(func() error {
-		defer stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-doneC:
-			return nil
 		}
 	})
 	if err := group.Wait(); err != nil {

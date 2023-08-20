@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,12 +22,37 @@ const (
 	address string = ":8811"
 )
 
-func TestStreamWS_ok(t *testing.T) {
-	client, tidy, err := prepareTest(address)
+type errNoErrHandler struct {
+	t *testing.T
+}
+
+func (h errNoErrHandler) Handle(_ context.Context, err error) {
 	if err != nil {
-		t.Fatalf("unable to prepare test: %+v", err)
+		h.t.Fatalf("handle error: expect no error but got %q", err)
+	}
+}
+
+func TestStreamWS_ok(t *testing.T) {
+	srvDone := atomic.Bool{}
+	tidy, err := prepareServer(
+		address,
+		ws.WithServerErrorHandler(errNoErrHandler{t}),
+		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
+			srvDone.Store(true)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer tidy()
+
+	cliDone := atomic.Bool{}
+	client := prepareClient(
+		address,
+		ws.WithClientFinalizer(func(ctx context.Context, err error) {
+			cliDone.Store(true)
+		}),
+	)
 
 	ctx := context.Background()
 
@@ -48,13 +75,12 @@ func TestStreamWS_ok(t *testing.T) {
 			}
 			mu.Unlock()
 		}
-		time.Sleep(100 * time.Millisecond) // wait for server to process all messages
+		time.Sleep(50 * time.Millisecond) // wait for server to process all messages
 	}()
-	receive, stop, err := client.Stream(ctx, sendC)
+	receive, err := client.Stream(ctx, sendC)
 	if err != nil {
 		t.Fatalf("call error: %+v", err)
 	}
-	defer stop()
 
 	i := 0
 	for {
@@ -66,6 +92,22 @@ func TestStreamWS_ok(t *testing.T) {
 			}
 			if len(msgs) != 0 {
 				t.Fatalf("message: want empty, have %q", msgs)
+			}
+			if !cliDone.Load() {
+				t.Fatal("client didn't finish")
+			}
+			dur := time.Second
+			wait := time.After(dur)
+			for {
+				select {
+				case <-wait:
+					t.Fatalf("server didn't finish for %s", dur)
+				default:
+					if srvDone.Load() {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
 			}
 			return
 		case err != nil:
@@ -95,11 +137,25 @@ func TestStreamWS_ok(t *testing.T) {
 }
 
 func TestStreamWS_error(t *testing.T) {
-	client, tidy, err := prepareTest(address)
+	srvDone := atomic.Bool{}
+	tidy, err := prepareServer(
+		address,
+		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
+			srvDone.Store(true)
+		}),
+	)
 	if err != nil {
-		t.Fatalf("unable to prepare test: %+v", err)
+		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer tidy()
+
+	cliDone := atomic.Bool{}
+	client := prepareClient(
+		address,
+		ws.WithClientFinalizer(func(ctx context.Context, err error) {
+			cliDone.Store(true)
+		}),
+	)
 
 	ctx := context.Background()
 
@@ -129,14 +185,13 @@ func TestStreamWS_error(t *testing.T) {
 			}
 			sendC <- req
 		}
-		time.Sleep(100 * time.Millisecond) // wait for server to process all messages
+		time.Sleep(50 * time.Millisecond) // wait for server to process all messages
 	}()
 
-	receive, stop, err := client.Stream(ctx, sendC)
+	receive, err := client.Stream(ctx, sendC)
 	if err != nil {
 		t.Fatalf("call error: %+v", err)
 	}
-	defer stop()
 
 	i := 0
 	for {
@@ -147,7 +202,7 @@ func TestStreamWS_error(t *testing.T) {
 		case err != nil:
 			wsErr, ok := err.(*websocket.CloseError)
 			if !ok {
-				t.Fatalf("error type: want %T, have %T", &websocket.CloseError{}, err)
+				t.Fatalf("error type: want %T, have %T (with %q)", &websocket.CloseError{}, err, err)
 			}
 			code, msg, _ := sCloser(ctx, errors.New(errMsg))
 			target := &websocket.CloseError{
@@ -159,6 +214,22 @@ func TestStreamWS_error(t *testing.T) {
 			}
 			if wsErr.Text != target.Text {
 				t.Fatalf("error message: want %q, have %q", target.Text, wsErr.Text)
+			}
+			if !cliDone.Load() {
+				t.Fatal("client didn't finish")
+			}
+			dur := time.Second
+			wait := time.After(dur)
+			for {
+				select {
+				case <-wait:
+					t.Fatalf("server didn't finish for %s", dur)
+				default:
+					if srvDone.Load() {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
 			}
 			return
 		}
@@ -185,71 +256,26 @@ func TestStreamWS_error(t *testing.T) {
 	}
 }
 
-func TestStreamWS_stop(t *testing.T) {
-	client, tidy, err := prepareTest(address)
-	if err != nil {
-		t.Fatalf("unable to prepare test: %+v", err)
-	}
-	defer tidy()
-
-	ctx := context.Background()
-
-	n := 10
-	nn := n * (n - 1) / 2 // expect triangular like number
-	cancelIter := n / 2
-	sendC := make(chan service.EchoRequest)
-
-	receive, stop, err := client.Stream(ctx, sendC)
-	if err != nil {
-		t.Fatalf("call error: %+v", err)
-	}
-	defer stop()
-
-	go func() {
-		defer close(sendC)
-		for i := 0; i < n; i++ {
-			req := service.EchoRequest{
-				Message: fmt.Sprintf("bi %d", i),
-				Repeat:  uint(i),
-				Latency: 10 * time.Millisecond,
-			}
-			if i == cancelIter {
-				stop()
-				time.Sleep(100 * time.Millisecond)
-				return
-			}
-			sendC <- req
-		}
-	}()
-
-	i := 0
-	for {
-		msg, err := receive()
-		switch {
-		case errors.Is(err, endpoint.StreamDone):
-			t.Fatal("want error, have stream done")
-		case err != nil:
-			if !errors.Is(err, context.Canceled) {
-				t.Fatalf("want %s to be %s", err, context.Canceled)
-			}
-			return
-		}
-		if i > nn {
-			t.Fatalf("iterations: expect less than %d, have %d", nn, i)
-		}
-		if len(msg.Messages) != 1 {
-			t.Fatalf("message: want exactly 1 message, have %d", len(msg.Messages))
-		}
-		i++
-	}
-}
-
 func TestStreamWS_cancel(t *testing.T) {
-	client, tidy, err := prepareTest(address)
+	srvDone := atomic.Bool{}
+	tidy, err := prepareServer(
+		address,
+		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
+			srvDone.Store(true)
+		}),
+	)
 	if err != nil {
-		t.Fatalf("unable to prepare test: %+v", err)
+		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer tidy()
+
+	cliDone := atomic.Bool{}
+	client := prepareClient(
+		address,
+		ws.WithClientFinalizer(func(ctx context.Context, err error) {
+			cliDone.Store(true)
+		}),
+	)
 
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
@@ -268,18 +294,17 @@ func TestStreamWS_cancel(t *testing.T) {
 			}
 			if i == cancelIter {
 				cancel()
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(50 * time.Millisecond)
 				return
 			}
 			sendC <- req
 		}
 	}()
 
-	receive, stop, err := client.Stream(ctx, sendC)
+	receive, err := client.Stream(ctx, sendC)
 	if err != nil {
 		t.Fatalf("call error: %+v", err)
 	}
-	defer stop()
 
 	i := 0
 	for {
@@ -290,6 +315,22 @@ func TestStreamWS_cancel(t *testing.T) {
 		case err != nil:
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("want %s to be %s", err, context.Canceled)
+			}
+			if !cliDone.Load() {
+				t.Fatal("client didn't finish")
+			}
+			dur := time.Second
+			wait := time.After(dur)
+			for {
+				select {
+				case <-wait:
+					t.Fatalf("server didn't finish for %s", dur)
+				default:
+					if srvDone.Load() {
+						return
+					}
+					time.Sleep(time.Millisecond)
+				}
 			}
 			return
 		}
@@ -303,270 +344,153 @@ func TestStreamWS_cancel(t *testing.T) {
 	}
 }
 
-func TestStreamWS_heartbeat_client(t *testing.T) {
-	sTidy, err := prepareServer(address)
-	if err != nil {
-		t.Fatalf("unable to prepare server: %+v", err)
-	}
-	defer sTidy()
+//func TestStreamWS_heartbeat_client(t *testing.T) {
+//	sTidy, err := prepareServer(address)
+//	if err != nil {
+//		t.Fatalf("unable to prepare server: %+v", err)
+//	}
+//	defer sTidy()
+//
+//	roundMu := sync.Mutex{}
+//	clientPingRounds := 0
+//	client := prepareClient(
+//		address,
+//		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+//			roundMu.Lock()
+//			clientPingRounds++
+//			roundMu.Unlock()
+//			return []byte("ping"), time.Now().Add(time.Second)
+//		}),
+//	)
+//
+//	ctx := context.Background()
+//	sendC := make(chan service.EchoRequest)
+//	defer close(sendC)
+//	_, stop, err := client.Stream(ctx, sendC)
+//	if err != nil {
+//		t.Fatalf("call error: %+v", err)
+//	}
+//	defer stop()
+//
+//	dur := 5 * time.Second
+//	wait := time.After(5 * time.Second)
+//	for {
+//		roundMu.Lock()
+//		rounds := clientPingRounds
+//		roundMu.Unlock()
+//		select {
+//		case <-wait:
+//			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
+//		default:
+//			if min, have := 2, rounds; min < have {
+//				return
+//			}
+//			time.Sleep(time.Millisecond)
+//		}
+//	}
+//}
 
-	clientPingRounds := 0
-	client := prepareClient(
-		address,
-		ws.WithClientPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
-			clientPingRounds++
-			return []byte("ping"), time.Now().Add(time.Second)
-		}),
-	)
+//func TestStreamWS_heartbeat_server(t *testing.T) {
+//	roundMu := sync.Mutex{}
+//	serverPingRounds := 0
+//	sTidy, err := prepareServer(
+//		address,
+//		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+//			roundMu.Lock()
+//			serverPingRounds++
+//			roundMu.Unlock()
+//			return []byte("ping"), time.Now().Add(time.Second)
+//		}),
+//	)
+//	if err != nil {
+//		t.Fatalf("unable to prepare server: %+v", err)
+//	}
+//	defer sTidy()
+//
+//	client := prepareClient(address)
+//
+//	ctx := context.Background()
+//	sendC := make(chan service.EchoRequest)
+//	defer close(sendC)
+//	_, stop, err := client.Stream(ctx, sendC)
+//	if err != nil {
+//		t.Fatalf("call error: %+v", err)
+//	}
+//	defer stop()
+//
+//	dur := 5 * time.Second
+//	wait := time.After(5 * time.Second)
+//	for {
+//		roundMu.Lock()
+//		rounds := serverPingRounds
+//		roundMu.Unlock()
+//		select {
+//		case <-wait:
+//			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
+//		default:
+//			if min, have := 2, rounds; min < have {
+//				return
+//			}
+//			time.Sleep(time.Millisecond)
+//		}
+//	}
+//}
 
-	ctx := context.Background()
-
-	n := 10
-	nn := n * (n - 1) / 2 // expect triangular like number
-	mu := sync.Mutex{}
-	msgs := make([]string, 0, nn)
-	sendC := make(chan service.EchoRequest)
-	go func() {
-		defer close(sendC)
-		for i := 0; i < n; i++ {
-			req := service.EchoRequest{
-				Message: fmt.Sprintf("bi %d", i),
-				Repeat:  uint(i),
-			}
-			mu.Lock()
-			sendC <- req
-			for j := 0; j < int(req.Repeat); j++ {
-				msgs = append(msgs, req.Message)
-			}
-			mu.Unlock()
-		}
-		time.Sleep(500 * time.Millisecond) // wait for server to process all messages
-	}()
-	receive, stop, err := client.Stream(ctx, sendC)
-	if err != nil {
-		t.Fatalf("call error: %+v", err)
-	}
-	defer stop()
-
-	i := 0
-	for {
-		msg, err := receive()
-		switch {
-		case errors.Is(err, endpoint.StreamDone):
-			if want, have := nn, i; want != have {
-				t.Fatalf("iteration: want %d, have %d", want, have)
-			}
-			if len(msgs) != 0 {
-				t.Fatalf("message: want empty, have %q", msgs)
-			}
-			if min, have := 2, clientPingRounds; min > have {
-				t.Fatalf("client ping rounds: want at least %d, have %d", min, have)
-			}
-			return
-		case err != nil:
-			t.Fatalf("request: %+v", err)
-		}
-		if i > nn {
-			t.Fatalf("iteration: want less than %d, have %d", nn, i)
-		}
-		if len(msg.Messages) != 1 {
-			t.Fatalf("message: want exactly 1 message, have %d", len(msg.Messages))
-		}
-		mu.Lock()
-		if !slices.Contains(msgs, msg.Messages[0]) {
-			t.Fatalf("message: want %q to contain in %q", msg.Messages[0], msgs)
-		}
-		once := true
-		msgs = slices.DeleteFunc(msgs, func(s string) bool {
-			del := s == msg.Messages[0]
-			if del && once {
-				defer func() { once = false }()
-			}
-			return del && once
-		})
-		mu.Unlock()
-		i++
-	}
-}
-
-func TestStreamWS_heartbeat_server(t *testing.T) {
-	serverPingRounds := 0
-	sTidy, err := prepareServer(
-		address,
-		ws.WithServerPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
-			serverPingRounds++
-			return []byte("ping"), time.Now().Add(time.Second)
-		}),
-	)
-	if err != nil {
-		t.Fatalf("unable to prepare server: %+v", err)
-	}
-	defer sTidy()
-
-	client := prepareClient(address)
-
-	ctx := context.Background()
-
-	n := 10
-	nn := n * (n - 1) / 2 // expect triangular like number
-	mu := sync.Mutex{}
-	msgs := make([]string, 0, nn)
-	sendC := make(chan service.EchoRequest)
-	go func() {
-		defer close(sendC)
-		for i := 0; i < n; i++ {
-			req := service.EchoRequest{
-				Message: fmt.Sprintf("bi %d", i),
-				Repeat:  uint(i),
-			}
-			mu.Lock()
-			sendC <- req
-			for j := 0; j < int(req.Repeat); j++ {
-				msgs = append(msgs, req.Message)
-			}
-			mu.Unlock()
-		}
-		time.Sleep(500 * time.Millisecond) // wait for server to process all messages
-	}()
-	receive, stop, err := client.Stream(ctx, sendC)
-	if err != nil {
-		t.Fatalf("call error: %+v", err)
-	}
-	defer stop()
-
-	i := 0
-	for {
-		msg, err := receive()
-		switch {
-		case errors.Is(err, endpoint.StreamDone):
-			if want, have := nn, i; want != have {
-				t.Fatalf("iteration: want %d, have %d", want, have)
-			}
-			if len(msgs) != 0 {
-				t.Fatalf("message: want empty, have %q", msgs)
-			}
-			if min, have := 2, serverPingRounds; min > have {
-				t.Fatalf("server ping rounds: want at least %d, have %d", min, have)
-			}
-			return
-		case err != nil:
-			t.Fatalf("request: %+v", err)
-		}
-		if i > nn {
-			t.Fatalf("iteration: want less than %d, have %d", nn, i)
-		}
-		if len(msg.Messages) != 1 {
-			t.Fatalf("message: want exactly 1 message, have %d", len(msg.Messages))
-		}
-		mu.Lock()
-		if !slices.Contains(msgs, msg.Messages[0]) {
-			t.Fatalf("message: want %q to contain in %q", msg.Messages[0], msgs)
-		}
-		once := true
-		msgs = slices.DeleteFunc(msgs, func(s string) bool {
-			del := s == msg.Messages[0]
-			if del && once {
-				defer func() { once = false }()
-			}
-			return del && once
-		})
-		mu.Unlock()
-		i++
-	}
-}
-
-func TestStreamWS_heartbeat_both(t *testing.T) {
-	serverPingRounds := 0
-	sTidy, err := prepareServer(
-		address,
-		ws.WithServerPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
-			serverPingRounds++
-			return []byte("ping"), time.Now().Add(time.Second)
-		}),
-	)
-	if err != nil {
-		t.Fatalf("unable to prepare server: %+v", err)
-	}
-	defer sTidy()
-
-	clientPingRounds := 0
-	client := prepareClient(
-		address,
-		ws.WithClientPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
-			clientPingRounds++
-			return []byte("ping"), time.Now().Add(time.Second)
-		}),
-	)
-
-	ctx := context.Background()
-
-	n := 10
-	nn := n * (n - 1) / 2 // expect triangular like number
-	mu := sync.Mutex{}
-	msgs := make([]string, 0, nn)
-	sendC := make(chan service.EchoRequest)
-	go func() {
-		defer close(sendC)
-		for i := 0; i < n; i++ {
-			req := service.EchoRequest{
-				Message: fmt.Sprintf("bi %d", i),
-				Repeat:  uint(i),
-			}
-			mu.Lock()
-			sendC <- req
-			for j := 0; j < int(req.Repeat); j++ {
-				msgs = append(msgs, req.Message)
-			}
-			mu.Unlock()
-		}
-		time.Sleep(time.Second) // wait for server to process all messages
-	}()
-	receive, stop, err := client.Stream(ctx, sendC)
-	if err != nil {
-		t.Fatalf("call error: %+v", err)
-	}
-	defer stop()
-
-	i := 0
-	for {
-		msg, err := receive()
-		switch {
-		case errors.Is(err, endpoint.StreamDone):
-			if want, have := nn, i; want != have {
-				t.Fatalf("iteration: want %d, have %d", want, have)
-			}
-			if len(msgs) != 0 {
-				t.Fatalf("message: want empty, have %q", msgs)
-			}
-			if min, have := 2, serverPingRounds; min > have {
-				t.Fatalf("server ping rounds: want at least %d, have %d", min, have)
-			}
-			if min, have := 2, clientPingRounds; min > have {
-				t.Fatalf("client ping rounds: want at least %d, have %d", min, have)
-			}
-			return
-		case err != nil:
-			t.Fatalf("request: %+v", err)
-		}
-		if i > nn {
-			t.Fatalf("iteration: want less than %d, have %d", nn, i)
-		}
-		if len(msg.Messages) != 1 {
-			t.Fatalf("message: want exactly 1 message, have %d", len(msg.Messages))
-		}
-		mu.Lock()
-		if !slices.Contains(msgs, msg.Messages[0]) {
-			t.Fatalf("message: want %q to contain in %q", msg.Messages[0], msgs)
-		}
-		once := true
-		msgs = slices.DeleteFunc(msgs, func(s string) bool {
-			del := s == msg.Messages[0]
-			if del && once {
-				defer func() { once = false }()
-			}
-			return del && once
-		})
-		mu.Unlock()
-		i++
-	}
-}
+//func TestStreamWS_heartbeat_both(t *testing.T) {
+//	serverRoundMu := sync.Mutex{}
+//	serverPingRounds := 0
+//	sTidy, err := prepareServer(
+//		address,
+//		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+//			serverRoundMu.Lock()
+//			serverPingRounds++
+//			serverRoundMu.Unlock()
+//			return []byte("ping"), time.Now().Add(time.Second)
+//		}),
+//	)
+//	if err != nil {
+//		t.Fatalf("unable to prepare server: %+v", err)
+//	}
+//	defer sTidy()
+//
+//	clientRoundMu := sync.Mutex{}
+//	clientPingRounds := 0
+//	client := prepareClient(
+//		address,
+//		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+//			clientRoundMu.Lock()
+//			clientPingRounds++
+//			clientRoundMu.Unlock()
+//			return []byte("ping"), time.Now().Add(time.Second)
+//		}),
+//	)
+//
+//	ctx := context.Background()
+//	sendC := make(chan service.EchoRequest)
+//	defer close(sendC)
+//	_, stop, err := client.Stream(ctx, sendC)
+//	if err != nil {
+//		t.Fatalf("call error: %+v", err)
+//	}
+//	defer stop()
+//
+//	dur := 5 * time.Second
+//	wait := time.After(5 * time.Second)
+//	for {
+//		clientRoundMu.Lock()
+//		crounds := clientPingRounds
+//		clientRoundMu.Unlock()
+//		serverRoundMu.Lock()
+//		srounds := serverPingRounds
+//		serverRoundMu.Unlock()
+//		select {
+//		case <-wait:
+//			t.Fatalf("not enougth pings for %s (have: %d client rounds and %d server rounds)", dur, crounds, srounds)
+//		default:
+//			if min, chave, shave := 2, crounds, srounds; min < chave && min < shave {
+//				return
+//			}
+//			time.Sleep(time.Millisecond)
+//		}
+//	}
+//}
