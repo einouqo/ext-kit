@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/go-kit/kit/endpoint"
+	kit "github.com/go-kit/kit/endpoint"
 )
 
 var (
@@ -13,7 +13,7 @@ var (
 
 type Unary[IN, OUT any] func(ctx context.Context, request IN) (response OUT, err error)
 
-func (e Unary[IN, OUT]) Kit() endpoint.Endpoint {
+func (e Unary[IN, OUT]) Kit() kit.Endpoint {
 	return func(ctx context.Context, request any) (response any, err error) {
 		req, ok := request.(IN)
 		if !ok && request != nil {
@@ -23,7 +23,7 @@ func (e Unary[IN, OUT]) Kit() endpoint.Endpoint {
 	}
 }
 
-func FromKit[IN, OUT any](e endpoint.Endpoint) Unary[IN, OUT] {
+func FromKit[IN, OUT any](e kit.Endpoint) Unary[IN, OUT] {
 	return func(ctx context.Context, in IN) (out OUT, err error) {
 		resp, err := e(ctx, in)
 		if err != nil {

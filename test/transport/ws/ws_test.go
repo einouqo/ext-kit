@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/fasthttp/websocket"
 	"golang.org/x/exp/slices"
 
 	"github.com/einouqo/ext-kit/endpoint"
@@ -116,18 +116,18 @@ func TestStreamWS_error(t *testing.T) {
 			req := service.EchoRequest{
 				Message: fmt.Sprintf("bi %d", i),
 			}
-			mu.Lock()
 			if i == errIter {
 				req.IsError = true
 				errMsg = req.Message
 			} else {
 				req.Repeat = uint(i)
+				mu.Lock()
 				for j := 0; j < int(req.Repeat); j++ {
 					msgs = append(msgs, req.Message)
 				}
+				mu.Unlock()
 			}
 			sendC <- req
-			mu.Unlock()
 		}
 		time.Sleep(100 * time.Millisecond) // wait for server to process all messages
 	}()
@@ -145,8 +145,20 @@ func TestStreamWS_error(t *testing.T) {
 		case errors.Is(err, endpoint.StreamDone):
 			t.Fatal("want error, have stream done")
 		case err != nil:
-			if !strings.Contains(err.Error(), errMsg) {
-				t.Fatalf("want %s to contain %s", err.Error(), errMsg)
+			wsErr, ok := err.(*websocket.CloseError)
+			if !ok {
+				t.Fatalf("error type: want %T, have %T", &websocket.CloseError{}, err)
+			}
+			code, msg, _ := sCloser(ctx, errors.New(errMsg))
+			target := &websocket.CloseError{
+				Code: int(code),
+				Text: msg,
+			}
+			if wsErr.Code != target.Code {
+				t.Fatalf("error code: want %d, have %d", target.Code, wsErr.Code)
+			}
+			if wsErr.Text != target.Text {
+				t.Fatalf("error message: want %q, have %q", target.Text, wsErr.Text)
 			}
 			return
 		}
@@ -203,6 +215,7 @@ func TestStreamWS_stop(t *testing.T) {
 			}
 			if i == cancelIter {
 				stop()
+				time.Sleep(100 * time.Millisecond)
 				return
 			}
 			sendC <- req
@@ -255,6 +268,7 @@ func TestStreamWS_cancel(t *testing.T) {
 			}
 			if i == cancelIter {
 				cancel()
+				time.Sleep(100 * time.Millisecond)
 				return
 			}
 			sendC <- req
@@ -299,7 +313,7 @@ func TestStreamWS_heartbeat_client(t *testing.T) {
 	clientPingRounds := 0
 	client := prepareClient(
 		address,
-		ws.WithClientPing(100*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
+		ws.WithClientPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
 			clientPingRounds++
 			return []byte("ping"), time.Now().Add(time.Second)
 		}),
@@ -326,7 +340,7 @@ func TestStreamWS_heartbeat_client(t *testing.T) {
 			}
 			mu.Unlock()
 		}
-		time.Sleep(2 * time.Second) // wait for server to process all messages
+		time.Sleep(500 * time.Millisecond) // wait for server to process all messages
 	}()
 	receive, stop, err := client.Stream(ctx, sendC)
 	if err != nil {
@@ -379,7 +393,7 @@ func TestStreamWS_heartbeat_server(t *testing.T) {
 	serverPingRounds := 0
 	sTidy, err := prepareServer(
 		address,
-		ws.WithServerPing(100*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
+		ws.WithServerPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
 			serverPingRounds++
 			return []byte("ping"), time.Now().Add(time.Second)
 		}),
@@ -412,7 +426,7 @@ func TestStreamWS_heartbeat_server(t *testing.T) {
 			}
 			mu.Unlock()
 		}
-		time.Sleep(2 * time.Second) // wait for server to process all messages
+		time.Sleep(500 * time.Millisecond) // wait for server to process all messages
 	}()
 	receive, stop, err := client.Stream(ctx, sendC)
 	if err != nil {
@@ -465,7 +479,7 @@ func TestStreamWS_heartbeat_both(t *testing.T) {
 	serverPingRounds := 0
 	sTidy, err := prepareServer(
 		address,
-		ws.WithServerPing(100*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
+		ws.WithServerPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
 			serverPingRounds++
 			return []byte("ping"), time.Now().Add(time.Second)
 		}),
@@ -478,7 +492,7 @@ func TestStreamWS_heartbeat_both(t *testing.T) {
 	clientPingRounds := 0
 	client := prepareClient(
 		address,
-		ws.WithClientPing(100*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
+		ws.WithClientPing(50*time.Millisecond, 500*time.Millisecond, func(context.Context) (msg []byte, deadline time.Time) {
 			clientPingRounds++
 			return []byte("ping"), time.Now().Add(time.Second)
 		}),
@@ -505,7 +519,7 @@ func TestStreamWS_heartbeat_both(t *testing.T) {
 			}
 			mu.Unlock()
 		}
-		time.Sleep(2 * time.Second) // wait for server to process all messages
+		time.Sleep(time.Second) // wait for server to process all messages
 	}()
 	receive, stop, err := client.Stream(ctx, sendC)
 	if err != nil {

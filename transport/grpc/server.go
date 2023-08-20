@@ -6,9 +6,10 @@ import (
 	"io"
 	"reflect"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/go-kit/kit/transport"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
-	"github.com/hashicorp/go-multierror"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
@@ -182,7 +183,7 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 	}
 
 	doneC := make(chan struct{})
-	group := multierror.Group{}
+	group := errgroup.Group{}
 	group.Go(func() error {
 		defer close(doneC)
 		if len(mdHeader) > 0 {
@@ -211,8 +212,7 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 			}
 		}
 	})
-	control := multierror.Group{}
-	control.Go(func() error {
+	group.Go(func() error {
 		defer stop()
 		select {
 		case <-ctx.Done():
@@ -221,10 +221,7 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 			return nil
 		}
 	})
-	if err := multierror.Append(
-		group.Wait(),
-		control.Wait(),
-	).ErrorOrNil(); err != nil {
+	if err := group.Wait(); err != nil {
 		return ctx, err
 	}
 
@@ -294,7 +291,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 
 	inC := make(chan IN)
 	doneC := make(chan struct{})
-	group := multierror.Group{}
+	group := errgroup.Group{}
 	group.Go(func() error {
 		defer close(inC)
 		for {
@@ -350,7 +347,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 		}
 		return nil
 	})
-	if err := group.Wait().ErrorOrNil(); err != nil {
+	if err := group.Wait(); err != nil {
 		return ctx, err
 	}
 
@@ -425,7 +422,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	}
 
 	doneC := make(chan struct{})
-	group := multierror.Group{}
+	group := errgroup.Group{}
 	group.Go(func() (err error) {
 		defer close(inC)
 		defer func() {
@@ -481,8 +478,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 			}
 		}
 	})
-	control := multierror.Group{}
-	control.Go(func() error {
+	group.Go(func() error {
 		defer stop()
 		select {
 		case <-ctx.Done():
@@ -491,10 +487,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 			return nil
 		}
 	})
-	if err := multierror.Append(
-		group.Wait(),
-		control.Wait(),
-	).ErrorOrNil(); err != nil {
+	if err := group.Wait(); err != nil {
 		return ctx, err
 	}
 

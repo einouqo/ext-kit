@@ -8,10 +8,11 @@ import (
 	"net/url"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
-	"github.com/hashicorp/go-multierror"
 
 	"github.com/einouqo/ext-kit/endpoint"
 )
@@ -77,18 +78,17 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			return handler(msg)
 		})
 
-		group := multierror.Group{}
+		doneC := make(chan struct{})
+		group := errgroup.Group{}
 		group.Go(func() (err error) {
+			defer close(doneC)
 			defer func() {
 				code, msg, deadline := c.closure(ctx, err)
-				err = multierror.Append(
-					err,
-					conn.WriteControl(
-						websocket.CloseMessage,
-						websocket.FormatCloseMessage(code.fastsocket(), msg),
-						deadline,
-					),
-				).ErrorOrNil()
+				conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(code.fastsocket(), msg),
+					deadline,
+				)
 			}()
 			for out := range receiver {
 				msg, mt, err := c.enc(ctx, out)
@@ -140,33 +140,38 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			}
 		})
 
-		doneC := make(chan struct{})
-		timeoutC := make(chan struct{})
-		control := multierror.Group{}
-		control.Go(func() error {
+		timeoutC := make(chan struct{}, 1)
+		closedC := make(chan struct{})
+		group.Go(func() error {
+			defer close(closedC)
+			defer conn.Close()
 			select {
 			case <-ctx.Done():
-			case <-doneC:
+				return ctx.Err()
 			case <-timeoutC:
+				return nil
+			case <-doneC:
+				return nil
 			}
-			return conn.Close()
 		})
 		if c.opts.heartbeat.enable {
-			control.Go(func() error {
-				defer close(timeoutC)
+			group.Go(func() error {
+				defer func() { timeoutC <- struct{}{} }()
 				ticker := time.NewTicker(c.opts.heartbeat.period)
 				defer ticker.Stop()
 				for {
 					select {
+					case <-closedC:
+						return nil
 					case <-ticker.C:
 						msg, deadline := c.opts.heartbeat.pinging(ctx)
 						if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
 							return err
 						}
-					case <-doneC:
-						return nil
 					}
 					select {
+					case <-closedC:
+						return nil
 					case <-time.After(c.opts.heartbeat.await):
 						return context.DeadlineExceeded
 					case <-pongC:
@@ -181,14 +186,8 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 		go func() {
 			defer close(errC)
 			defer close(pongC)
-			err := group.Wait().ErrorOrNil()
-			close(doneC)
-			err = multierror.Append(
-				err,
-				control.Wait(),
-				ctx.Err(),
-			).ErrorOrNil()
-			if err != nil {
+			defer close(timeoutC)
+			if err := group.Wait(); err != nil {
 				for _, h := range c.opts.errHandlers {
 					h.Handle(ctx, err)
 				}

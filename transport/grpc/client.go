@@ -6,9 +6,10 @@ import (
 	"io"
 	"reflect"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/go-kit/kit/transport"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
-	"github.com/hashicorp/go-multierror"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
@@ -168,7 +169,7 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 		}
 
 		inC := make(chan IN)
-		group := multierror.Group{}
+		group := errgroup.Group{}
 		group.Go(func() (err error) {
 			if c.opts.finalizer != nil {
 				defer func() {
@@ -199,8 +200,7 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 		errC := make(chan error)
 		go func() {
 			defer close(errC)
-			err := group.Wait().ErrorOrNil()
-			if err != nil {
+			if err := group.Wait(); err != nil {
 				for _, h := range c.opts.errHandlers {
 					h.Handle(ctx, err)
 				}
@@ -287,14 +287,9 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 			return in, err
 		}
 
-		group := multierror.Group{}
+		group := errgroup.Group{}
 		group.Go(func() (err error) {
-			defer func() {
-				err = multierror.Append(
-					err,
-					stream.CloseSend(),
-				).ErrorOrNil()
-			}()
+			defer stream.CloseSend()
 			for out := range receiver {
 				msg, err := c.enc(ctx, out)
 				if err != nil {
@@ -329,7 +324,7 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 			inC <- in
 			return nil
 		})
-		if err := group.Wait().ErrorOrNil(); err != nil {
+		if err := group.Wait(); err != nil {
 			return in, err
 		}
 
@@ -399,14 +394,9 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			ctx = f(ctx, header, trailer)
 		}
 
-		group := multierror.Group{}
+		group := errgroup.Group{}
 		group.Go(func() (err error) {
-			defer func() {
-				err = multierror.Append(
-					err,
-					stream.CloseSend(),
-				).ErrorOrNil()
-			}()
+			defer stream.CloseSend()
 			for out := range receiver {
 				msg, err := c.enc(ctx, out)
 				if err != nil {
@@ -453,8 +443,7 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 		errC := make(chan error)
 		go func() {
 			defer close(errC)
-			err := group.Wait().ErrorOrNil()
-			if err != nil {
+			if err := group.Wait(); err != nil {
 				for _, h := range c.opts.errHandlers {
 					h.Handle(ctx, err)
 				}

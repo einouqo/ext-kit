@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
-	"github.com/hashicorp/go-multierror"
 
 	"github.com/einouqo/ext-kit/endpoint"
 )
@@ -79,6 +80,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
 	for _, f := range s.opts.after {
 		ctx = f(ctx, conn)
@@ -87,7 +89,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	inC := make(chan IN)
 	receive, stop, err := s.e(ctx, inC)
 	if err != nil {
-		return multierror.Append(err, conn.Close()).ErrorOrNil()
+		return err
 	}
 
 	pongC := make(chan struct{})
@@ -101,7 +103,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	})
 
 	doneC := make(chan struct{})
-	group := multierror.Group{}
+	group := errgroup.Group{}
 	group.Go(func() (err error) {
 		defer close(inC)
 		defer func() {
@@ -138,14 +140,11 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		defer close(doneC)
 		defer func() {
 			code, msg, deadline := s.closure(ctx, err)
-			err = multierror.Append(
-				err,
-				conn.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(code.fastsocket(), msg),
-					deadline,
-				),
-			).ErrorOrNil()
+			conn.WriteControl(
+				websocket.CloseMessage,
+				websocket.FormatCloseMessage(code.fastsocket(), msg),
+				deadline,
+			)
 		}()
 		for {
 			out, err := receive()
@@ -172,40 +171,39 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	})
 
-	timeoutC := make(chan struct{})
-	control := multierror.Group{}
-	control.Go(func() error {
+	timeoutC := make(chan struct{}, 1)
+	defer close(timeoutC)
+	closedC := make(chan struct{})
+	group.Go(func() error {
 		defer stop()
+		defer close(closedC)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case <-timeoutC:
+			return nil
 		case <-doneC:
 			return nil
 		}
 	})
-	control.Go(func() error {
-		select {
-		case <-doneC:
-		case <-timeoutC:
-		}
-		return conn.Close()
-	})
 	if s.opts.heartbeat.enable {
-		control.Go(func() error {
-			defer close(timeoutC)
+		group.Go(func() error {
+			defer func() { timeoutC <- struct{}{} }()
 			ticker := time.NewTicker(s.opts.heartbeat.period)
 			defer ticker.Stop()
 			for {
 				select {
+				case <-closedC:
+					return nil
 				case <-ticker.C:
 					msg, deadline := s.opts.heartbeat.pinging(ctx)
 					if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
 						return err
 					}
-				case <-doneC:
-					return nil
 				}
 				select {
+				case <-closedC:
+					return nil
 				case <-time.After(s.opts.heartbeat.await):
 					return context.DeadlineExceeded
 				case <-pongC:
@@ -216,10 +214,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		})
 	}
 
-	if err = multierror.Append(
-		group.Wait(),
-		control.Wait(),
-	).ErrorOrNil(); err != nil {
+	if err = group.Wait(); err != nil {
 		return err
 	}
 

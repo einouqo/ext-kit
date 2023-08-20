@@ -169,8 +169,12 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 		case errors.Is(err, endpoint.StreamDone):
 			t.Fatal("want error, have stream done")
 		case err != nil:
-			if !strings.Contains(err.Error(), context.Canceled.Error()) {
-				t.Fatalf("want %q to contain %q", err.Error(), context.Canceled.Error())
+			st, ok := status.FromError(err)
+			if !ok {
+				t.Fatalf("want %s to be grpc status", err)
+			}
+			if st.Code() != codes.Canceled {
+				t.Fatalf("want %s to be canceled", st.Code())
 			}
 			if want, have := 1, i; want != have {
 				t.Fatalf("iteration: want %d, have %d", want, have)
@@ -296,8 +300,12 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	if err == nil {
 		t.Fatal("want error, have nil")
 	}
-	if !strings.Contains(err.Error(), context.Canceled.Error()) {
-		t.Fatalf("want %q to contain %q", err.Error(), context.Canceled.Error())
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("want %s to be grpc status", err)
+	}
+	if st.Code() != codes.Canceled {
+		t.Fatalf("want %s to be canceled", st.Code())
 	}
 }
 
