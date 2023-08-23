@@ -63,8 +63,10 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			f(ctx, conn)
 		}
 
+		doneCh := make(chan struct{})
 		group := errgroup.Group{}
 		group.Go(func() (err error) {
+			defer close(doneCh)
 			defer func() {
 				code, msg, deadline := c.closure(ctx, err)
 				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
@@ -129,6 +131,52 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				inCh <- in
 			}
 		})
+
+		if c.opts.heartbeat.enable {
+			group.Go(func() error {
+				defer conn.Close()
+
+				pongCh := make(chan struct{})
+				handler := conn.PongHandler()
+				conn.SetPongHandler(func(msg string) error {
+					select {
+					case pongCh <- struct{}{}:
+					case <-doneCh:
+					}
+					return handler(msg)
+				})
+
+				ticker := time.NewTicker(c.opts.heartbeat.period)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-doneCh:
+						return nil
+					case <-ticker.C:
+						msg, deadline := c.opts.heartbeat.pinging(ctx)
+						err := conn.WriteControl(websocket.PingMessage, msg, deadline)
+						switch {
+						case errors.Is(err, net.ErrClosed):
+							return nil
+						case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+							return nil
+						case errors.Is(err, websocket.ErrCloseSent):
+							return nil
+						case err != nil:
+							return err
+						}
+					}
+					select {
+					case <-doneCh:
+						return nil
+					case <-time.After(c.opts.heartbeat.await):
+						return context.DeadlineExceeded
+					case <-pongCh:
+						ticker.Reset(c.opts.heartbeat.period)
+					}
+				}
+			})
+		}
 
 		errCh := make(chan error)
 		go func() {

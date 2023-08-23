@@ -344,153 +344,150 @@ func TestStreamWS_cancel(t *testing.T) {
 	}
 }
 
-//func TestStreamWS_heartbeat_client(t *testing.T) {
-//	sTidy, err := prepareServer(address)
-//	if err != nil {
-//		t.Fatalf("unable to prepare server: %+v", err)
-//	}
-//	defer sTidy()
-//
-//	roundMu := sync.Mutex{}
-//	clientPingRounds := 0
-//	client := prepareClient(
-//		address,
-//		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
-//			roundMu.Lock()
-//			clientPingRounds++
-//			roundMu.Unlock()
-//			return []byte("ping"), time.Now().Add(time.Second)
-//		}),
-//	)
-//
-//	ctx := context.Background()
-//	sendC := make(chan service.EchoRequest)
-//	defer close(sendC)
-//	_, stop, err := client.Stream(ctx, sendC)
-//	if err != nil {
-//		t.Fatalf("call error: %+v", err)
-//	}
-//	defer stop()
-//
-//	dur := 5 * time.Second
-//	wait := time.After(5 * time.Second)
-//	for {
-//		roundMu.Lock()
-//		rounds := clientPingRounds
-//		roundMu.Unlock()
-//		select {
-//		case <-wait:
-//			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
-//		default:
-//			if min, have := 2, rounds; min < have {
-//				return
-//			}
-//			time.Sleep(time.Millisecond)
-//		}
-//	}
-//}
+func TestStreamWS_heartbeat_client(t *testing.T) {
+	sTidy, err := prepareServer(address)
+	if err != nil {
+		t.Fatalf("unable to prepare server: %+v", err)
+	}
+	defer sTidy()
 
-//func TestStreamWS_heartbeat_server(t *testing.T) {
-//	roundMu := sync.Mutex{}
-//	serverPingRounds := 0
-//	sTidy, err := prepareServer(
-//		address,
-//		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
-//			roundMu.Lock()
-//			serverPingRounds++
-//			roundMu.Unlock()
-//			return []byte("ping"), time.Now().Add(time.Second)
-//		}),
-//	)
-//	if err != nil {
-//		t.Fatalf("unable to prepare server: %+v", err)
-//	}
-//	defer sTidy()
-//
-//	client := prepareClient(address)
-//
-//	ctx := context.Background()
-//	sendC := make(chan service.EchoRequest)
-//	defer close(sendC)
-//	_, stop, err := client.Stream(ctx, sendC)
-//	if err != nil {
-//		t.Fatalf("call error: %+v", err)
-//	}
-//	defer stop()
-//
-//	dur := 5 * time.Second
-//	wait := time.After(5 * time.Second)
-//	for {
-//		roundMu.Lock()
-//		rounds := serverPingRounds
-//		roundMu.Unlock()
-//		select {
-//		case <-wait:
-//			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
-//		default:
-//			if min, have := 2, rounds; min < have {
-//				return
-//			}
-//			time.Sleep(time.Millisecond)
-//		}
-//	}
-//}
+	roundMu := sync.Mutex{}
+	clientPingRounds := 0
+	client := prepareClient(
+		address,
+		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+			roundMu.Lock()
+			clientPingRounds++
+			roundMu.Unlock()
+			return []byte("ping"), time.Now().Add(time.Second)
+		}),
+	)
 
-//func TestStreamWS_heartbeat_both(t *testing.T) {
-//	serverRoundMu := sync.Mutex{}
-//	serverPingRounds := 0
-//	sTidy, err := prepareServer(
-//		address,
-//		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
-//			serverRoundMu.Lock()
-//			serverPingRounds++
-//			serverRoundMu.Unlock()
-//			return []byte("ping"), time.Now().Add(time.Second)
-//		}),
-//	)
-//	if err != nil {
-//		t.Fatalf("unable to prepare server: %+v", err)
-//	}
-//	defer sTidy()
-//
-//	clientRoundMu := sync.Mutex{}
-//	clientPingRounds := 0
-//	client := prepareClient(
-//		address,
-//		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
-//			clientRoundMu.Lock()
-//			clientPingRounds++
-//			clientRoundMu.Unlock()
-//			return []byte("ping"), time.Now().Add(time.Second)
-//		}),
-//	)
-//
-//	ctx := context.Background()
-//	sendC := make(chan service.EchoRequest)
-//	defer close(sendC)
-//	_, stop, err := client.Stream(ctx, sendC)
-//	if err != nil {
-//		t.Fatalf("call error: %+v", err)
-//	}
-//	defer stop()
-//
-//	dur := 5 * time.Second
-//	wait := time.After(5 * time.Second)
-//	for {
-//		clientRoundMu.Lock()
-//		crounds := clientPingRounds
-//		clientRoundMu.Unlock()
-//		serverRoundMu.Lock()
-//		srounds := serverPingRounds
-//		serverRoundMu.Unlock()
-//		select {
-//		case <-wait:
-//			t.Fatalf("not enougth pings for %s (have: %d client rounds and %d server rounds)", dur, crounds, srounds)
-//		default:
-//			if min, chave, shave := 2, crounds, srounds; min < chave && min < shave {
-//				return
-//			}
-//			time.Sleep(time.Millisecond)
-//		}
-//	}
-//}
+	ctx := context.Background()
+	sendC := make(chan service.EchoRequest)
+	defer close(sendC)
+	_, err = client.Stream(ctx, sendC)
+	if err != nil {
+		t.Fatalf("call error: %+v", err)
+	}
+
+	dur := 5 * time.Second
+	wait := time.After(5 * time.Second)
+	for {
+		roundMu.Lock()
+		rounds := clientPingRounds
+		roundMu.Unlock()
+		select {
+		case <-wait:
+			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
+		default:
+			if min, have := 2, rounds; min < have {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func TestStreamWS_heartbeat_server(t *testing.T) {
+	roundMu := sync.Mutex{}
+	serverPingRounds := 0
+	sTidy, err := prepareServer(
+		address,
+		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+			roundMu.Lock()
+			serverPingRounds++
+			roundMu.Unlock()
+			return []byte("ping"), time.Now().Add(time.Second)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unable to prepare server: %+v", err)
+	}
+	defer sTidy()
+
+	client := prepareClient(address)
+
+	ctx := context.Background()
+	sendC := make(chan service.EchoRequest)
+	defer close(sendC)
+	_, err = client.Stream(ctx, sendC)
+	if err != nil {
+		t.Fatalf("call error: %+v", err)
+	}
+
+	dur := 5 * time.Second
+	wait := time.After(dur)
+	for {
+		roundMu.Lock()
+		rounds := serverPingRounds
+		roundMu.Unlock()
+		select {
+		case <-wait:
+			t.Fatalf("not enougth pings for %s (have: %d rounds)", dur, rounds)
+		default:
+			if min, have := 2, rounds; min < have {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
+func TestStreamWS_heartbeat_both(t *testing.T) {
+	serverRoundMu := sync.Mutex{}
+	serverPingRounds := 0
+	sTidy, err := prepareServer(
+		address,
+		ws.WithServerPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+			serverRoundMu.Lock()
+			serverPingRounds++
+			serverRoundMu.Unlock()
+			return []byte("ping"), time.Now().Add(time.Second)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unable to prepare server: %+v", err)
+	}
+	defer sTidy()
+
+	clientRoundMu := sync.Mutex{}
+	clientPingRounds := 0
+	client := prepareClient(
+		address,
+		ws.WithClientPing(time.Nanosecond, time.Second, func(context.Context) (msg []byte, deadline time.Time) {
+			clientRoundMu.Lock()
+			clientPingRounds++
+			clientRoundMu.Unlock()
+			return []byte("ping"), time.Now().Add(time.Second)
+		}),
+	)
+
+	ctx := context.Background()
+	sendC := make(chan service.EchoRequest)
+	defer close(sendC)
+	_, err = client.Stream(ctx, sendC)
+	if err != nil {
+		t.Fatalf("call error: %+v", err)
+	}
+
+	dur := 5 * time.Second
+	wait := time.After(5 * time.Second)
+	for {
+		clientRoundMu.Lock()
+		crounds := clientPingRounds
+		clientRoundMu.Unlock()
+		serverRoundMu.Lock()
+		srounds := serverPingRounds
+		serverRoundMu.Unlock()
+		select {
+		case <-wait:
+			t.Fatalf("not enougth pings for %s (have: %d client rounds and %d server rounds)", dur, crounds, srounds)
+		default:
+			if min, chave, shave := 2, crounds, srounds; min < chave && min < shave {
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+}

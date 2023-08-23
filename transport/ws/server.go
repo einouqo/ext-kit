@@ -154,46 +154,51 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	})
 
-	//if s.opts.heartbeat.enable {
-	//	pongC := make(chan struct{})
-	//	defer close(pongC)
-	//	handler := conn.PongHandler()
-	//	conn.SetPongHandler(func(msg string) error {
-	//		pongC <- struct{}{}
-	//		return handler(msg)
-	//	})
-	//	var cancel context.CancelFunc
-	//	ctx, cancel = context.WithCancel(ctx)
-	//	group.Go(func() (err error) {
-	//		defer cancel()
-	//		ticker := time.NewTicker(s.opts.heartbeat.period)
-	//		defer ticker.Stop()
-	//		for {
-	//			select {
-	//			case <-doneCh:
-	//				return nil
-	//			case <-ticker.C:
-	//				msg, deadline := s.opts.heartbeat.pinging(ctx)
-	//				err := conn.WriteControl(websocket.PingMessage, msg, deadline)
-	//				switch {
-	//				case errors.Is(err, websocket.ErrCloseSent):
-	//					return nil
-	//				case err != nil:
-	//					return nil
-	//				}
-	//			}
-	//			select {
-	//			case <-doneCh:
-	//				return nil
-	//			case <-time.After(s.opts.heartbeat.await):
-	//				return context.DeadlineExceeded
-	//			case <-pongC:
-	//				// nothing
-	//			}
-	//			ticker.Reset(s.opts.heartbeat.period)
-	//		}
-	//	})
-	//}
+	if s.opts.heartbeat.enable {
+		group.Go(func() error {
+			defer conn.Close()
+
+			pongCh := make(chan struct{})
+			handler := conn.PongHandler()
+			conn.SetPongHandler(func(msg string) error {
+				select {
+				case pongCh <- struct{}{}:
+				case <-doneCh:
+				}
+				return handler(msg)
+			})
+
+			ticker := time.NewTicker(s.opts.heartbeat.period)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-doneCh:
+					return nil
+				case <-ticker.C:
+					msg, deadline := s.opts.heartbeat.pinging(ctx)
+					err := conn.WriteControl(websocket.PingMessage, msg, deadline)
+					switch {
+					case errors.Is(err, net.ErrClosed):
+						return nil
+					case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+						return nil
+					case errors.Is(err, websocket.ErrCloseSent):
+						return nil
+					case err != nil:
+						return err
+					}
+				}
+				select {
+				case <-doneCh:
+					return nil
+				case <-time.After(s.opts.heartbeat.await):
+					return context.DeadlineExceeded
+				case <-pongCh:
+					ticker.Reset(s.opts.heartbeat.period)
+				}
+			}
+		})
+	}
 
 	if err := group.Wait(); err != nil {
 		return err
