@@ -24,7 +24,8 @@ const (
 )
 
 func TestUnaryGRPC_ok(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerErrorHandler(errNoErrHandler{t}),
@@ -37,7 +38,8 @@ func TestUnaryGRPC_ok(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -62,16 +64,17 @@ func TestUnaryGRPC_ok(t *testing.T) {
 	if want, have := req.Message, resp.Messages[0]; want != have {
 		t.Fatalf("message: want %q', have %q", want, have)
 	}
-	if !cliDone.Load() {
+	if !cliDone.Load().(bool) {
 		t.Fatal("client didn't finish")
 	}
-	if !srvDone.Load() {
+	if !srvDone.Load().(bool) {
 		t.Fatal("server didn't finish")
 	}
 }
 
 func TestUnaryGRPC_error(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -83,7 +86,8 @@ func TestUnaryGRPC_error(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -105,16 +109,17 @@ func TestUnaryGRPC_error(t *testing.T) {
 	if !strings.Contains(err.Error(), req.Message) {
 		t.Fatalf("want %q to contain %q", err.Error(), req.Message)
 	}
-	if !cliDone.Load() {
+	if !cliDone.Load().(bool) {
 		t.Fatal("client didn't finish")
 	}
-	if !srvDone.Load() {
+	if !srvDone.Load().(bool) {
 		t.Fatal("server didn't finish")
 	}
 }
 
 func TestInnerStreamGRPC_ok(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerErrorHandler(errNoErrHandler{t}),
@@ -127,7 +132,8 @@ func TestInnerStreamGRPC_ok(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -159,10 +165,10 @@ func TestInnerStreamGRPC_ok(t *testing.T) {
 			if want, have := n, i; want != have {
 				t.Fatalf("iteration: want %d, have %d", want, have)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
-			if !srvDone.Load() {
+			if !srvDone.Load().(bool) {
 				t.Fatal("server didn't finish")
 			}
 			return
@@ -183,7 +189,8 @@ func TestInnerStreamGRPC_ok(t *testing.T) {
 }
 
 func TestInnerStreamGRPC_error(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -195,7 +202,8 @@ func TestInnerStreamGRPC_error(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -230,10 +238,10 @@ func TestInnerStreamGRPC_error(t *testing.T) {
 			if !strings.Contains(err.Error(), req.Message) {
 				t.Fatalf("want %q to contain %q", err.Error(), req.Message)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
-			if !srvDone.Load() {
+			if !srvDone.Load().(bool) {
 				t.Fatal("server didn't finish")
 			}
 			return
@@ -246,7 +254,8 @@ func TestInnerStreamGRPC_error(t *testing.T) {
 }
 
 func TestInnerStreamGRPC_cancel(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -258,7 +267,8 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -297,7 +307,7 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 			if want, have := 1, i; want != have {
 				t.Fatalf("iteration: want %d, have %d", want, have)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
 			dur := time.Second
@@ -307,7 +317,7 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 				case <-wait:
 					t.Fatalf("server didn't finish for %s", dur)
 				default:
-					if srvDone.Load() {
+					if srvDone.Load().(bool) {
 						return
 					}
 					time.Sleep(time.Millisecond)
@@ -330,7 +340,8 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 }
 
 func TestOuterStreamGRPC_ok(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -342,7 +353,8 @@ func TestOuterStreamGRPC_ok(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -379,16 +391,17 @@ func TestOuterStreamGRPC_ok(t *testing.T) {
 	if !slices.Equal(resp.Messages, msgs) {
 		t.Fatalf("want %q, have %q", msgs, resp.Messages)
 	}
-	if !cliDone.Load() {
+	if !cliDone.Load().(bool) {
 		t.Fatal("client didn't finish")
 	}
-	if !srvDone.Load() {
+	if !srvDone.Load().(bool) {
 		t.Fatal("server didn't finish")
 	}
 }
 
 func TestOuterStreamGRPC_error(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -400,7 +413,8 @@ func TestOuterStreamGRPC_error(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -443,16 +457,17 @@ func TestOuterStreamGRPC_error(t *testing.T) {
 	if !strings.Contains(err.Error(), errMsg) {
 		t.Fatalf("want %q to contain %q", err.Error(), errMsg)
 	}
-	if !cliDone.Load() {
+	if !cliDone.Load().(bool) {
 		t.Fatal("client didn't finish")
 	}
-	if !srvDone.Load() {
+	if !srvDone.Load().(bool) {
 		t.Fatal("server didn't finish")
 	}
 }
 
 func TestOuterStreamGRPC_cancel(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -464,7 +479,8 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -507,7 +523,7 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	if st.Code() != codes.Canceled {
 		t.Fatalf("want %s to be canceled", st.Code())
 	}
-	if !cliDone.Load() {
+	if !cliDone.Load().(bool) {
 		t.Fatal("client didn't finish")
 	}
 	dur := time.Second
@@ -517,7 +533,7 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 		case <-wait:
 			t.Fatalf("server didn't finish for %s", dur)
 		default:
-			if srvDone.Load() {
+			if srvDone.Load().(bool) {
 				return
 			}
 			time.Sleep(time.Millisecond)
@@ -526,7 +542,8 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 }
 
 func TestBiStreamGRPC_ok(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -538,7 +555,8 @@ func TestBiStreamGRPC_ok(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -588,10 +606,10 @@ func TestBiStreamGRPC_ok(t *testing.T) {
 			if len(msgs) != 0 {
 				t.Fatalf("message: want empty, have %q", msgs)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
-			if !srvDone.Load() {
+			if !srvDone.Load().(bool) {
 				t.Fatal("server didn't finish")
 			}
 			return
@@ -622,7 +640,8 @@ func TestBiStreamGRPC_ok(t *testing.T) {
 }
 
 func TestBiStreamGRPC_error(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -634,7 +653,8 @@ func TestBiStreamGRPC_error(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -694,10 +714,10 @@ func TestBiStreamGRPC_error(t *testing.T) {
 			if !strings.Contains(err.Error(), errMsg) {
 				t.Fatalf("want %s to contain %s", err.Error(), errMsg)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
-			if !srvDone.Load() {
+			if !srvDone.Load().(bool) {
 				t.Fatal("server didn't finish")
 			}
 			return
@@ -726,7 +746,8 @@ func TestBiStreamGRPC_error(t *testing.T) {
 }
 
 func TestBiStreamGRPC_cancel(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	srvTidy, err := prepareServer(
 		addressTestGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
@@ -738,7 +759,8 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 	}
 	defer srvTidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
 		addressTestGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -792,7 +814,7 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 			if st.Code() != codes.Canceled {
 				t.Fatalf("want %s to be canceled", st.Code())
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
 			dur := time.Second
@@ -802,7 +824,7 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 				case <-wait:
 					t.Fatalf("server didn't finish for %s", dur)
 				default:
-					if srvDone.Load() {
+					if srvDone.Load().(bool) {
 						return
 					}
 					time.Sleep(time.Millisecond)

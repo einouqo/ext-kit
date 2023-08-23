@@ -33,7 +33,8 @@ func (h errNoErrHandler) Handle(_ context.Context, err error) {
 }
 
 func TestStreamWS_ok(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	tidy, err := prepareServer(
 		address,
 		ws.WithServerErrorHandler(errNoErrHandler{t}),
@@ -46,7 +47,8 @@ func TestStreamWS_ok(t *testing.T) {
 	}
 	defer tidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client := prepareClient(
 		address,
 		ws.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -93,7 +95,7 @@ func TestStreamWS_ok(t *testing.T) {
 			if len(msgs) != 0 {
 				t.Fatalf("message: want empty, have %q", msgs)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
 			dur := time.Second
@@ -103,7 +105,7 @@ func TestStreamWS_ok(t *testing.T) {
 				case <-wait:
 					t.Fatalf("server didn't finish for %s", dur)
 				default:
-					if srvDone.Load() {
+					if srvDone.Load().(bool) {
 						return
 					}
 					time.Sleep(time.Millisecond)
@@ -137,7 +139,8 @@ func TestStreamWS_ok(t *testing.T) {
 }
 
 func TestStreamWS_error(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	tidy, err := prepareServer(
 		address,
 		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
@@ -149,7 +152,8 @@ func TestStreamWS_error(t *testing.T) {
 	}
 	defer tidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client := prepareClient(
 		address,
 		ws.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -215,7 +219,7 @@ func TestStreamWS_error(t *testing.T) {
 			if wsErr.Text != target.Text {
 				t.Fatalf("error message: want %q, have %q", target.Text, wsErr.Text)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
 			dur := time.Second
@@ -225,7 +229,7 @@ func TestStreamWS_error(t *testing.T) {
 				case <-wait:
 					t.Fatalf("server didn't finish for %s", dur)
 				default:
-					if srvDone.Load() {
+					if srvDone.Load().(bool) {
 						return
 					}
 					time.Sleep(time.Millisecond)
@@ -257,7 +261,8 @@ func TestStreamWS_error(t *testing.T) {
 }
 
 func TestStreamWS_cancel(t *testing.T) {
-	srvDone := atomic.Bool{}
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
 	tidy, err := prepareServer(
 		address,
 		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
@@ -269,7 +274,8 @@ func TestStreamWS_cancel(t *testing.T) {
 	}
 	defer tidy()
 
-	cliDone := atomic.Bool{}
+	cliDone := atomic.Value{}
+	cliDone.Store(false)
 	client := prepareClient(
 		address,
 		ws.WithClientFinalizer(func(ctx context.Context, err error) {
@@ -316,7 +322,7 @@ func TestStreamWS_cancel(t *testing.T) {
 			if !errors.Is(err, context.Canceled) {
 				t.Fatalf("want %s to be %s", err, context.Canceled)
 			}
-			if !cliDone.Load() {
+			if !cliDone.Load().(bool) {
 				t.Fatal("client didn't finish")
 			}
 			dur := time.Second
@@ -326,7 +332,7 @@ func TestStreamWS_cancel(t *testing.T) {
 				case <-wait:
 					t.Fatalf("server didn't finish for %s", dur)
 				default:
-					if srvDone.Load() {
+					if srvDone.Load().(bool) {
 						return
 					}
 					time.Sleep(time.Millisecond)
