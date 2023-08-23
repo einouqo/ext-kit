@@ -126,4 +126,11 @@ issues:
     - linters:
         - gocritic
       text: 'appendAssign: append result not assigned to the same slice'
+    - linters:
+        - errcheck
+      source: ^\s*defer .*$
+    - linters:
+        - dupl
+      path: transport/ws/ # same ping feature for server and client
+
 

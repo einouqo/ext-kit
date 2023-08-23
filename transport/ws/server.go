@@ -8,11 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/einouqo/ext-kit/endpoint"
 )
@@ -123,7 +122,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		defer func() {
 			code, msg, deadline := s.closure(ctx, err)
 			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
-			conn.WriteControl(websocket.CloseMessage, data, deadline)
+			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
 		}()
 		for {
 			out, err := receive()

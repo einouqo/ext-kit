@@ -6,10 +6,9 @@ import (
 	"io"
 	"reflect"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/go-kit/kit/transport"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/proto"
