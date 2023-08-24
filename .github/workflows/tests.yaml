@@ -26,4 +26,4 @@ jobs:
         if: steps.cache-gomod.outputs.cache-hit != 'true'
         run: exit 1
       - name: run unit
-        run: go test -v -covermode atomic ./...
+        run: go test -v -covermode atomic ./... --race  --timeout 1m

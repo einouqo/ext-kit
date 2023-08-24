@@ -11,7 +11,7 @@ import (
 )
 
 type Service interface {
-	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], endpoint.Stop, error)
+	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], error)
 }
 
 type ServerBinding struct {

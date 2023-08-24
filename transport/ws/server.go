@@ -5,12 +5,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"syscall"
 	"time"
 
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
-	"github.com/hashicorp/go-multierror"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/einouqo/ext-kit/endpoint"
 )
@@ -67,9 +68,6 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	headers := &http.Header{}
 	for _, f := range s.opts.before {
 		ctx = f(ctx, r.Header, headers)
@@ -79,44 +77,29 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return err
 	}
+	defer conn.Close()
 
 	for _, f := range s.opts.after {
 		ctx = f(ctx, conn)
 	}
 
-	inC := make(chan IN)
-	receive, stop, err := s.e(ctx, inC)
+	inCh := make(chan IN)
+	receive, err := s.e(ctx, inCh)
 	if err != nil {
-		return multierror.Append(err, conn.Close()).ErrorOrNil()
+		return err
 	}
 
-	pongC := make(chan struct{})
-	defer close(pongC)
-	handler := conn.PongHandler()
-	conn.SetPongHandler(func(msg string) error {
-		if s.opts.heartbeat.enable {
-			pongC <- struct{}{}
-		}
-		return handler(msg)
-	})
-
-	doneC := make(chan struct{})
-	group := multierror.Group{}
+	doneCh := make(chan struct{})
+	group := errgroup.Group{}
 	group.Go(func() (err error) {
-		defer close(inC)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
+		defer close(inCh)
+		defer conn.Close()
 		for {
 			if err := s.updateReadDeadline(conn); err != nil {
 				return err
 			}
 			messageType, msg, err := conn.ReadMessage()
 			switch {
-			case errors.Is(err, net.ErrClosed):
-				return nil
 			case websocket.IsCloseError(err, websocket.CloseNormalClosure):
 				return nil
 			case err != nil:
@@ -128,24 +111,18 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				return err
 			}
 			select {
-			case <-doneC:
+			case <-doneCh:
 				return nil
-			case inC <- in:
+			case inCh <- in:
 			}
 		}
 	})
 	group.Go(func() (err error) {
-		defer close(doneC)
+		defer close(doneCh)
 		defer func() {
 			code, msg, deadline := s.closure(ctx, err)
-			err = multierror.Append(
-				err,
-				conn.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(code.fastsocket(), msg),
-					deadline,
-				),
-			).ErrorOrNil()
+			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
 		}()
 		for {
 			out, err := receive()
@@ -166,60 +143,63 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 			switch {
 			case errors.Is(err, net.ErrClosed):
 				return nil
+			case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+				return nil
+			case errors.Is(err, websocket.ErrCloseSent):
+				return nil
 			case err != nil:
 				return err
 			}
 		}
 	})
 
-	timeoutC := make(chan struct{})
-	control := multierror.Group{}
-	control.Go(func() error {
-		defer stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-doneC:
-			return nil
-		}
-	})
-	control.Go(func() error {
-		select {
-		case <-doneC:
-		case <-timeoutC:
-		}
-		return conn.Close()
-	})
 	if s.opts.heartbeat.enable {
-		control.Go(func() error {
-			defer close(timeoutC)
+		group.Go(func() error {
+			defer conn.Close()
+
+			pongCh := make(chan struct{})
+			handler := conn.PongHandler()
+			conn.SetPongHandler(func(msg string) error {
+				select {
+				case pongCh <- struct{}{}:
+				case <-doneCh:
+				}
+				return handler(msg)
+			})
+
 			ticker := time.NewTicker(s.opts.heartbeat.period)
 			defer ticker.Stop()
 			for {
 				select {
+				case <-doneCh:
+					return nil
 				case <-ticker.C:
 					msg, deadline := s.opts.heartbeat.pinging(ctx)
-					if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
+					err := conn.WriteControl(websocket.PingMessage, msg, deadline)
+					switch {
+					case errors.Is(err, net.ErrClosed):
+						return nil
+					case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+						return nil
+					case errors.Is(err, websocket.ErrCloseSent):
+						return nil
+					case err != nil:
 						return err
 					}
-				case <-doneC:
-					return nil
 				}
 				select {
+				case <-doneCh:
+					return nil
 				case <-time.After(s.opts.heartbeat.await):
 					return context.DeadlineExceeded
-				case <-pongC:
-					// nothing
+				case <-pongCh:
+					ticker.Reset(s.opts.heartbeat.period)
 				}
-				ticker.Reset(s.opts.heartbeat.period)
 			}
 		})
 	}
 
-	if err = multierror.Append(
-		group.Wait(),
-		control.Wait(),
-	).ErrorOrNil(); err != nil {
+	if err := group.Wait(); err != nil {
 		return err
 	}
 
