@@ -6,7 +6,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/_service"
 	"github.com/einouqo/ext-kit/test/transport/grpc/pb"
 )
 

@@ -3,7 +3,7 @@ package ws
 import (
 	"testing"
 
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 

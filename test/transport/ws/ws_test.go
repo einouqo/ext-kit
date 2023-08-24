@@ -14,7 +14,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
