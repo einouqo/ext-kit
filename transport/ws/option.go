@@ -70,9 +70,9 @@ func WithClientReadLimit(limit int64) ClientOption {
 func WithClientPing(period, await time.Duration, pinging Pinging) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.heartbeat.enable = true
-		o.heartbeat.period = period
-		o.heartbeat.await = await
-		o.heartbeat.pinging = pinging
+		o.heartbeat.config.period = period
+		o.heartbeat.config.await = await
+		o.heartbeat.config.pinging = pinging
 	}}
 }
 
@@ -142,9 +142,9 @@ func WithServerWriteCompression(level int) ServerOption {
 func WithServerPing(period, await time.Duration, pinging Pinging) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.heartbeat.enable = true
-		o.heartbeat.period = period
-		o.heartbeat.await = await
-		o.heartbeat.pinging = pinging
+		o.heartbeat.config.period = period
+		o.heartbeat.config.await = await
+		o.heartbeat.config.pinging = pinging
 	}}
 }
 
