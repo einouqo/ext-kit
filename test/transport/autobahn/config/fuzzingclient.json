@@ -12,6 +12,10 @@
     {
       "agent": "ReadAllWriteMessage",
       "url": "ws://host.docker.internal:9000/m"
+    },
+    {
+      "agent": "ReadAllWritePreparedMessage",
+      "url": "ws://host.docker.internal:9000/p"
     }
   ]
 }

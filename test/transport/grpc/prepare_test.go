@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/einouqo/ext-kit/test/_service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/test/transport/grpc/pb"
 	kitgrpc "github.com/einouqo/ext-kit/transport/grpc"
 )
