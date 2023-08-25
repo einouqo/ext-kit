@@ -48,6 +48,12 @@ func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	}}
 }
 
+func WithClientPreparedWrites() ClientOption {
+	return funcClientOption{f: func(o *clientOptions) {
+		o.enhancement.config.write.prepared = true
+	}}
+}
+
 func WithClientWriteCompression(level int) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.enhancement.preset.write.compression.enable = true
@@ -129,6 +135,12 @@ func WithServerReadLimit(limit int64) ServerOption {
 func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.enhancement.config.write.timeout = timeout
+	}}
+}
+
+func WithServerPreparedWrites() ServerOption {
+	return funcServerOption{f: func(o *serverOptions) {
+		o.enhancement.config.write.prepared = true
 	}}
 }
 
