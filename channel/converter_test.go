@@ -12,8 +12,8 @@ func TestConvert(t *testing.T) {
 		return fmt.Sprintf("%+v", a), nil
 	})
 	wait := time.Second
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
+	timeout := time.NewTimer(wait)
+	defer timeout.Stop()
 	for _, val := range []int{-10, -1, 0, 1, 10} {
 		aC <- val
 		select {
@@ -26,10 +26,10 @@ func TestConvert(t *testing.T) {
 			if bval != fmt.Sprintf("%+v", val) {
 				t.Errorf("unexpected value %v", bval)
 			}
-		case <-timer.C:
+		case <-timeout.C:
 			t.Errorf("timeout")
 		}
-		timer.Reset(wait)
+		timeout.Reset(wait)
 	}
 	close(aC)
 	_, ok := <-bC
