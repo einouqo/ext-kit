@@ -129,8 +129,5 @@ issues:
     - linters:
         - errcheck
       source: ^\s*defer .*$
-    - linters:
-        - dupl
-      path: transport/ws/ # same ping feature for server and client
 
 

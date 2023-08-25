@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"syscall"
-	"time"
 
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
@@ -53,13 +52,25 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			ctx = f(ctx, headers)
 		}
 
-		conn, _, err := c.dialer().DialContext(ctx, c.url.String(), *headers)
+		wsc, resp, err := c.dialer(
+			c.opts.enhancement.preset.write.compression.enable,
+		).DialContext(ctx, c.url.String(), *headers)
 		if err != nil {
 			return nil, err
 		}
+		defer func() {
+			if err != nil {
+				_ = wsc.Close()
+			}
+		}()
 
 		for _, f := range c.opts.after {
-			f(ctx, conn)
+			ctx = f(ctx, resp)
+		}
+
+		conn, err := enhance(c.opts.enhancement.preset, c.opts.enhancement.config, wsc)
+		if err != nil {
+			return nil, err
 		}
 
 		doneCh := make(chan struct{})
@@ -81,9 +92,6 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 					}
 					msg, mt, err := c.enc(ctx, out)
 					if err != nil {
-						return err
-					}
-					if err := c.updateWriteDeadline(conn); err != nil {
 						return err
 					}
 					err = conn.WriteMessage(mt.fastsocket(), msg)
@@ -112,9 +120,6 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			defer close(inCh)
 			defer conn.Close()
 			for {
-				if err := c.updateReadDeadline(conn); err != nil {
-					return err
-				}
 				messageType, msg, err := conn.ReadMessage()
 				switch {
 				case websocket.IsCloseError(err, websocket.CloseNormalClosure):
@@ -134,46 +139,7 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 		if c.opts.heartbeat.enable {
 			group.Go(func() error {
 				defer conn.Close()
-
-				pongCh := make(chan struct{})
-				handler := conn.PongHandler()
-				conn.SetPongHandler(func(msg string) error {
-					select {
-					case pongCh <- struct{}{}:
-					case <-doneCh:
-					}
-					return handler(msg)
-				})
-
-				ticker := time.NewTicker(c.opts.heartbeat.period)
-				defer ticker.Stop()
-				for {
-					select {
-					case <-doneCh:
-						return nil
-					case <-ticker.C:
-						msg, deadline := c.opts.heartbeat.pinging(ctx)
-						err := conn.WriteControl(websocket.PingMessage, msg, deadline)
-						switch {
-						case errors.Is(err, net.ErrClosed):
-							return nil
-						case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
-							return nil
-						case errors.Is(err, websocket.ErrCloseSent):
-							return nil
-						case err != nil:
-							return err
-						}
-					}
-					select {
-					case <-doneCh:
-						return nil
-					case <-time.After(c.opts.heartbeat.await):
-						return context.DeadlineExceeded
-					case <-pongCh:
-						ticker.Reset(c.opts.heartbeat.period)
-					}
-				}
+				return heartbeat(ctx, c.opts.heartbeat.config, conn, doneCh)
 			})
 		}
 
@@ -201,44 +167,30 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 	}
 }
 
-func (c *Client[OUT, IN]) dialer() *websocket.Dialer {
+func (c *Client[OUT, IN]) dialer(compression bool) *websocket.Dialer {
 	if c.opts.dialer != nil {
 		return c.opts.dialer
 	}
-	return websocket.DefaultDialer
-}
-
-func (c *Client[OUT, IN]) updateWriteDeadline(conn *websocket.Conn) error {
-	if c.opts.timeout.write > 0 {
-		deadline := time.Now().Add(c.opts.timeout.write)
-		return conn.SetWriteDeadline(deadline)
-	}
-	return nil
-}
-
-func (c *Client[OUT, IN]) updateReadDeadline(conn *websocket.Conn) error {
-	if c.opts.timeout.read > 0 {
-		deadline := time.Now().Add(c.opts.timeout.read)
-		return conn.SetReadDeadline(deadline)
-	}
-	return nil
+	dd := websocket.DefaultDialer
+	dd.EnableCompression = compression
+	return dd
 }
 
 type clientOptions struct {
 	dialer *websocket.Dialer
 
-	before      []ClientRequestFunc
-	after       []ClientConnectionFunc
+	before      []ClientHeaderFunc
+	after       []ClientResponseFunc
 	finalizer   []kithttp.ClientFinalizerFunc
 	errHandlers []transport.ErrorHandler
 
-	timeout struct {
-		write, read time.Duration
+	enhancement struct {
+		preset enhPreset
+		config enhConfig
 	}
 
 	heartbeat struct {
-		enable        bool
-		period, await time.Duration
-		pinging       Pinging
+		enable bool
+		config hbConfig
 	}
 }
