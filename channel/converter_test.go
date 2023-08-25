@@ -3,6 +3,7 @@ package channel
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func TestConvert(t *testing.T) {
@@ -10,6 +11,9 @@ func TestConvert(t *testing.T) {
 	bC, errC := Convert[int, string](aC, func(a int) (b string, err error) {
 		return fmt.Sprintf("%+v", a), nil
 	})
+	wait := time.Second
+	timeout := time.NewTimer(wait)
+	defer timeout.Stop()
 	for _, val := range []int{-10, -1, 0, 1, 10} {
 		aC <- val
 		select {
@@ -22,9 +26,10 @@ func TestConvert(t *testing.T) {
 			if bval != fmt.Sprintf("%+v", val) {
 				t.Errorf("unexpected value %v", bval)
 			}
-		default:
-			t.Errorf("unexpected empty")
+		case <-timeout.C:
+			t.Errorf("timeout")
 		}
+		timeout.Reset(wait)
 	}
 	close(aC)
 	_, ok := <-bC
