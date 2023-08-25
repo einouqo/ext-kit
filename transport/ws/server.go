@@ -73,14 +73,21 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		ctx = f(ctx, r.Header, headers)
 	}
 
-	conn, err := s.upgrader().Upgrade(w, r, *headers)
+	wsc, err := s.upgrader(
+		s.opts.enhancement.preset.write.compression.enable,
+	).Upgrade(w, r, *headers)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	defer wsc.Close()
 
 	for _, f := range s.opts.after {
-		ctx = f(ctx, conn)
+		ctx = f(ctx, wsc.LocalAddr(), wsc.RemoteAddr())
+	}
+
+	conn, err := enhance(s.opts.enhancement.preset, s.opts.enhancement.config, wsc)
+	if err != nil {
+		return err
 	}
 
 	inCh := make(chan IN)
@@ -95,9 +102,6 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		defer close(inCh)
 		defer conn.Close()
 		for {
-			if err := s.updateReadDeadline(conn); err != nil {
-				return err
-			}
 			messageType, msg, err := conn.ReadMessage()
 			switch {
 			case websocket.IsCloseError(err, websocket.CloseNormalClosure):
@@ -134,9 +138,6 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 			}
 			msg, mt, err := s.enc(ctx, out)
 			if err != nil {
-				return err
-			}
-			if err := s.updateWriteDeadline(conn); err != nil {
 				return err
 			}
 			err = conn.WriteMessage(mt.fastsocket(), msg)
@@ -206,39 +207,24 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	return nil
 }
 
-func (s *Server[IN, OUT]) upgrader() *websocket.Upgrader {
+func (s *Server[IN, OUT]) upgrader(compression bool) *websocket.Upgrader {
 	if s.opts.upgrader != nil {
 		return s.opts.upgrader
 	}
-	return &websocket.Upgrader{}
-}
-
-func (s *Server[IN, OUT]) updateWriteDeadline(conn *websocket.Conn) error {
-	if s.opts.timeout.write > 0 {
-		deadline := time.Now().Add(s.opts.timeout.write)
-		return conn.SetWriteDeadline(deadline)
-	}
-	return nil
-}
-
-func (s *Server[IN, OUT]) updateReadDeadline(conn *websocket.Conn) error {
-	if s.opts.timeout.read > 0 {
-		deadline := time.Now().Add(s.opts.timeout.read)
-		return conn.SetReadDeadline(deadline)
-	}
-	return nil
+	return &websocket.Upgrader{EnableCompression: compression}
 }
 
 type serverOptions struct {
 	upgrader *websocket.Upgrader
 
-	before      []ServerRequestFunc
-	after       []ServerConnectionFunc
+	before      []ServerHeaderFunc
+	after       []ServerAddressFunc
 	finalizer   []kithttp.ServerFinalizerFunc
 	errHandlers []transport.ErrorHandler
 
-	timeout struct {
-		read, write time.Duration
+	enhancement struct {
+		preset enhPreset
+		config enhConfig
 	}
 
 	heartbeat struct {
