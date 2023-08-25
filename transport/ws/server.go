@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"syscall"
-	"time"
 
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
@@ -157,46 +156,7 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if s.opts.heartbeat.enable {
 		group.Go(func() error {
 			defer conn.Close()
-
-			pongCh := make(chan struct{})
-			handler := conn.PongHandler()
-			conn.SetPongHandler(func(msg string) error {
-				select {
-				case pongCh <- struct{}{}:
-				case <-doneCh:
-				}
-				return handler(msg)
-			})
-
-			ticker := time.NewTicker(s.opts.heartbeat.period)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-doneCh:
-					return nil
-				case <-ticker.C:
-					msg, deadline := s.opts.heartbeat.pinging(ctx)
-					err := conn.WriteControl(websocket.PingMessage, msg, deadline)
-					switch {
-					case errors.Is(err, net.ErrClosed):
-						return nil
-					case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
-						return nil
-					case errors.Is(err, websocket.ErrCloseSent):
-						return nil
-					case err != nil:
-						return err
-					}
-				}
-				select {
-				case <-doneCh:
-					return nil
-				case <-time.After(s.opts.heartbeat.await):
-					return context.DeadlineExceeded
-				case <-pongCh:
-					ticker.Reset(s.opts.heartbeat.period)
-				}
-			}
+			return heartbeat(ctx, s.opts.heartbeat.config, conn, doneCh)
 		})
 	}
 
@@ -228,8 +188,7 @@ type serverOptions struct {
 	}
 
 	heartbeat struct {
-		enable        bool
-		period, await time.Duration
-		pinging       Pinging
+		enable bool
+		config hbConfig
 	}
 }
