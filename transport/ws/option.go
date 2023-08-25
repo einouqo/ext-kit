@@ -18,13 +18,13 @@ func WithClientDialler(dialer *websocket.Dialer) ClientOption {
 	}}
 }
 
-func WithClientBefore(before ClientRequestFunc) ClientOption {
+func WithClientBefore(before ClientHeaderFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.before = append(o.before, before)
 	}}
 }
 
-func WithClientAfter(after ClientConnectionFunc) ClientOption {
+func WithClientAfter(after ClientResponseFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.after = append(o.after, after)
 	}}
@@ -44,13 +44,26 @@ func WithClientErrorHandler(handler transport.ErrorHandler) ClientOption {
 
 func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.timeout.write = timeout
+		o.enhancement.config.write.timeout = timeout
+	}}
+}
+
+func WithClientWriteCompression(level int) ClientOption {
+	return funcClientOption{f: func(o *clientOptions) {
+		o.enhancement.preset.write.compression.enable = true
+		o.enhancement.preset.write.compression.level = level
 	}}
 }
 
 func WithClientReadTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.timeout.read = timeout
+		o.enhancement.config.read.timeout = timeout
+	}}
+}
+
+func WithClientReadLimit(limit int64) ClientOption {
+	return funcClientOption{f: func(o *clientOptions) {
+		o.enhancement.preset.read.limit = limit
 	}}
 }
 
@@ -83,15 +96,9 @@ func WithServerUpgrader(upgrader *websocket.Upgrader) ServerOption {
 	}}
 }
 
-func WithServerBefore(before ServerRequestFunc) ServerOption {
+func WithServerBefore(before ServerHeaderFunc) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.before = append(o.before, before)
-	}}
-}
-
-func WithServerAfter(after ServerConnectionFunc) ServerOption {
-	return funcServerOption{f: func(o *serverOptions) {
-		o.after = append(o.after, after)
 	}}
 }
 
@@ -109,13 +116,26 @@ func WithServerErrorHandler(handler transport.ErrorHandler) ServerOption {
 
 func WithServerReadTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.timeout.read = timeout
+		o.enhancement.config.read.timeout = timeout
+	}}
+}
+
+func WithServerReadLimit(limit int64) ServerOption {
+	return funcServerOption{f: func(o *serverOptions) {
+		o.enhancement.preset.read.limit = limit
 	}}
 }
 
 func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.timeout.write = timeout
+		o.enhancement.config.write.timeout = timeout
+	}}
+}
+
+func WithServerWriteCompression(level int) ServerOption {
+	return funcServerOption{f: func(o *serverOptions) {
+		o.enhancement.preset.write.compression.enable = true
+		o.enhancement.preset.write.compression.level = level
 	}}
 }
 
