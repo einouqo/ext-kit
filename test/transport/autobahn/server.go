@@ -2,11 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
+	"unicode/utf8"
 
 	"github.com/einouqo/ext-kit/endpoint"
 	"github.com/einouqo/ext-kit/transport/ws"
+)
+
+var (
+	ErrInvalidUTF8 = errors.New("invalid utf8")
 )
 
 type Service interface {
@@ -46,6 +52,9 @@ func NewServerBindings(srv Service) *ServerBindings {
 }
 
 func decode(_ context.Context, messageType ws.MessageType, bytes []byte) (Message, error) {
+	if messageType == ws.TextMessageType && !utf8.Valid(bytes) {
+		return Message{}, ErrInvalidUTF8
+	}
 	return Message{Type: messageType, Payload: bytes}, nil
 }
 
@@ -53,7 +62,10 @@ func encode(_ context.Context, message Message) ([]byte, ws.MessageType, error) 
 	return message.Payload, message.Type, nil
 }
 
-func closer(context.Context, error) (code ws.CloseCode, msg string, deadline time.Time) {
+func closer(_ context.Context, err error) (code ws.CloseCode, msg string, deadline time.Time) {
+	if errors.Is(err, ErrInvalidUTF8) {
+		return ws.InvalidFramePayloadDataCloseCode, "", time.Now().Add(time.Second)
+	}
 	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
 }
 
@@ -61,8 +73,6 @@ func upgrade(ctx context.Context, upg ws.Upgrader, _ *http.Request, _ *http.Head
 	upg.SetReadBufferSize(1 << 12)
 	upg.SetWriteBufferSize(1 << 12)
 	upg.SetEnableCompression(true)
-	upg.SetCheckOrigin(func(r *http.Request) bool {
-		return true
-	})
+	upg.SetCheckOrigin(func(r *http.Request) bool { return true })
 	return ctx
 }
