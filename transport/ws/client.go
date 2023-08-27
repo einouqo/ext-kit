@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"syscall"
 
 	"github.com/fasthttp/websocket"
@@ -69,15 +70,16 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 
 		conn := enhConn{wsc, c.opts.enhancement.config}
 
+		once := sync.Once{}
 		doneCh := make(chan struct{})
 		group := errgroup.Group{}
 		group.Go(func() (err error) {
 			defer close(doneCh)
-			defer func() {
+			defer once.Do(func() {
 				code, msg, deadline := c.closure(ctx, err)
 				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
 				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
-			}()
+			})
 			for {
 				select {
 				case <-ctx.Done():
@@ -115,6 +117,11 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			}
 			defer close(inCh)
 			defer conn.Close()
+			defer once.Do(func() {
+				code, msg, deadline := c.closure(ctx, err)
+				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
+			})
 			for {
 				messageType, msg, err := conn.ReadMessage()
 				switch {

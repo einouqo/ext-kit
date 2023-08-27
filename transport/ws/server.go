@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"sync"
 	"syscall"
 
 	"github.com/fasthttp/websocket"
@@ -91,11 +92,17 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		return err
 	}
 
+	once := sync.Once{}
 	doneCh := make(chan struct{})
 	group := errgroup.Group{}
 	group.Go(func() (err error) {
 		defer close(inCh)
 		defer conn.Close()
+		defer once.Do(func() {
+			code, msg, deadline := s.closure(ctx, err)
+			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
+		})
 		for {
 			messageType, msg, err := conn.ReadMessage()
 			switch {
@@ -118,11 +125,11 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	})
 	group.Go(func() (err error) {
 		defer close(doneCh)
-		defer func() {
+		defer once.Do(func() {
 			code, msg, deadline := s.closure(ctx, err)
 			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
 			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
-		}()
+		})
 		for {
 			out, err := receive()
 			switch {
