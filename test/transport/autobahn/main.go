@@ -14,6 +14,7 @@ func main() {
 	streamer := Streamer{}
 	bindings := NewServerBindings(streamer)
 
+	http.HandleFunc("/r", bindings.R.ServeHTTP)
 	http.HandleFunc("/m", bindings.M.ServeHTTP)
 	http.HandleFunc("/p", bindings.P.ServeHTTP)
 

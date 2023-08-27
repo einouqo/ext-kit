@@ -10,6 +10,10 @@
   },
   "servers": [
     {
+      "agent": "ReadAllWrite",
+      "url": "ws://host.docker.internal:9000/r"
+    },
+    {
       "agent": "ReadAllWriteMessage",
       "url": "ws://host.docker.internal:9000/m"
     },

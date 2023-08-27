@@ -1,9 +1,17 @@
 package ws
 
 import (
+	"io"
 	"time"
 
 	"github.com/fasthttp/websocket"
+)
+
+type WriteMod uint8
+
+const (
+	WriteModPlain WriteMod = iota + 1
+	WriteModPrepared
 )
 
 type connection interface {
@@ -25,6 +33,7 @@ type rw interface {
 	SetWriteDeadline(t time.Time) error
 	WriteMessage(messageType int, data []byte) error
 	WritePreparedMessage(pm *websocket.PreparedMessage) error
+	NextWriter(messageType int) (io.WriteCloser, error)
 }
 
 type controller interface {
@@ -43,8 +52,8 @@ type enhConfig struct {
 	}
 
 	write struct {
-		timeout  time.Duration
-		prepared bool
+		timeout time.Duration
+		mod     WriteMod
 	}
 }
 
@@ -53,24 +62,40 @@ type enhConn struct {
 	cfg enhConfig
 }
 
-func (c *enhConn) ReadMessage() (messageType int, p []byte, err error) {
+func (c enhConn) ReadMessage() (messageType int, p []byte, err error) {
 	if err := c.updateReadDeadline(c.connection); err != nil {
 		return 0, nil, err
 	}
 	return c.connection.ReadMessage()
 }
 
-func (c *enhConn) WriteMessage(messageType int, data []byte) error {
+func (c enhConn) WriteMessage(messageType int, data []byte) error {
 	if err := c.updateWriteDeadline(c.connection); err != nil {
 		return err
 	}
-	if c.cfg.write.prepared {
+	switch c.cfg.write.mod {
+	case WriteModPlain:
+		return c.writePlain(messageType, data)
+	case WriteModPrepared:
 		return c.writePrepared(messageType, data)
+	default:
+		return c.connection.WriteMessage(messageType, data)
 	}
-	return c.connection.WriteMessage(messageType, data)
 }
 
-func (c *enhConn) writePrepared(messageType int, data []byte) error {
+func (c enhConn) writePlain(messageType int, data []byte) error {
+	w, err := c.connection.NextWriter(messageType)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(data)
+	if err != nil {
+		return err
+	}
+	return w.Close()
+}
+
+func (c enhConn) writePrepared(messageType int, data []byte) error {
 	pm, err := websocket.NewPreparedMessage(messageType, data)
 	if err != nil {
 		return err
@@ -78,7 +103,7 @@ func (c *enhConn) writePrepared(messageType int, data []byte) error {
 	return c.connection.WritePreparedMessage(pm)
 }
 
-func (c *enhConn) updateWriteDeadline(conn connection) error {
+func (c enhConn) updateWriteDeadline(conn connection) error {
 	if c.cfg.write.timeout > 0 {
 		deadline := time.Now().Add(c.cfg.write.timeout)
 		return conn.SetWriteDeadline(deadline)
@@ -86,7 +111,7 @@ func (c *enhConn) updateWriteDeadline(conn connection) error {
 	return nil
 }
 
-func (c *enhConn) updateReadDeadline(conn connection) error {
+func (c enhConn) updateReadDeadline(conn connection) error {
 	if c.cfg.read.timeout > 0 {
 		deadline := time.Now().Add(c.cfg.read.timeout)
 		return conn.SetReadDeadline(deadline)

@@ -14,11 +14,19 @@ type Service interface {
 }
 
 type ServerBindings struct {
-	M, P http.Handler
+	R, M, P http.Handler
 }
 
 func NewServerBindings(srv Service) *ServerBindings {
 	return &ServerBindings{
+		R: ws.NewServer(
+			srv.Echo,
+			decode,
+			encode,
+			closer,
+			ws.WithServerBefore(upgrade),
+			ws.WithServerWriteMod(ws.WriteModPlain),
+		),
 		M: ws.NewServer(
 			srv.Echo,
 			decode,
@@ -32,7 +40,7 @@ func NewServerBindings(srv Service) *ServerBindings {
 			encode,
 			closer,
 			ws.WithServerBefore(upgrade),
-			ws.WithServerPreparedWrites(),
+			ws.WithServerWriteMod(ws.WriteModPrepared),
 		),
 	}
 }

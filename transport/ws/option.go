@@ -41,9 +41,9 @@ func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	}}
 }
 
-func WithClientPreparedWrites() ClientOption {
+func WithClientWriteMod(mod WriteMod) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.config.write.prepared = true
+		o.enhancement.config.write.mod = mod
 	}}
 }
 
@@ -106,9 +106,9 @@ func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	}}
 }
 
-func WithServerPreparedWrites() ServerOption {
+func WithServerWriteMod(mod WriteMod) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.config.write.prepared = true
+		o.enhancement.config.write.mod = mod
 	}}
 }
 
