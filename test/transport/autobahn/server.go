@@ -19,19 +19,42 @@ type ServerBindings struct {
 
 func NewServerBindings(srv Service) *ServerBindings {
 	return &ServerBindings{
-		M: ws.NewServer(srv.Echo, decode, encode, closer),
-		P: ws.NewServer(srv.Echo, decode, encode, closer, ws.WithServerPreparedWrites()),
+		M: ws.NewServer(
+			srv.Echo,
+			decode,
+			encode,
+			closer,
+			ws.WithServerBefore(upgrade),
+		),
+		P: ws.NewServer(
+			srv.Echo,
+			decode,
+			encode,
+			closer,
+			ws.WithServerBefore(upgrade),
+			ws.WithServerPreparedWrites(),
+		),
 	}
 }
 
-func decode(ctx context.Context, messageType ws.MessageType, bytes []byte) (Message, error) {
+func decode(_ context.Context, messageType ws.MessageType, bytes []byte) (Message, error) {
 	return Message{Type: messageType, Payload: bytes}, nil
 }
 
-func encode(ctx context.Context, message Message) ([]byte, ws.MessageType, error) {
+func encode(_ context.Context, message Message) ([]byte, ws.MessageType, error) {
 	return message.Payload, message.Type, nil
 }
 
 func closer(context.Context, error) (code ws.CloseCode, msg string, deadline time.Time) {
 	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
+}
+
+func upgrade(ctx context.Context, upg ws.Upgrader, _ *http.Request, _ *http.Header) context.Context {
+	upg.SetReadBufferSize(1 << 12)
+	upg.SetWriteBufferSize(1 << 12)
+	upg.SetEnableCompression(true)
+	upg.SetCheckOrigin(func(r *http.Request) bool {
+		return true
+	})
+	return ctx
 }

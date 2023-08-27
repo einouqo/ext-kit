@@ -68,26 +68,22 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
 	headers := &http.Header{}
+	upg := upgrader{new(websocket.Upgrader)}
 	for _, f := range s.opts.before {
-		ctx = f(ctx, r.Header, headers)
+		ctx = f(ctx, upg, r, headers)
 	}
 
-	wsc, err := s.upgrader(
-		s.opts.enhancement.preset.write.compression.enable,
-	).Upgrade(w, r, *headers)
+	wsc, err := upg.Upgrade(w, r, *headers)
 	if err != nil {
 		return err
 	}
 	defer wsc.Close()
 
 	for _, f := range s.opts.after {
-		ctx = f(ctx, wsc.LocalAddr(), wsc.RemoteAddr())
+		ctx = f(ctx, wsc)
 	}
 
-	conn, err := enhance(s.opts.enhancement.preset, s.opts.enhancement.config, wsc)
-	if err != nil {
-		return err
-	}
+	conn := enhConn{wsc, s.opts.enhancement.config}
 
 	inCh := make(chan IN)
 	receive, err := s.e(ctx, inCh)
@@ -167,23 +163,13 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	return nil
 }
 
-func (s *Server[IN, OUT]) upgrader(compression bool) *websocket.Upgrader {
-	if s.opts.upgrader != nil {
-		return s.opts.upgrader
-	}
-	return &websocket.Upgrader{EnableCompression: compression}
-}
-
 type serverOptions struct {
-	upgrader *websocket.Upgrader
-
-	before      []ServerHeaderFunc
-	after       []ServerAddressFunc
+	before      []UpgradeFunc
+	after       []ServerTunerFunc
 	finalizer   []kithttp.ServerFinalizerFunc
 	errHandlers []transport.ErrorHandler
 
 	enhancement struct {
-		preset enhPreset
 		config enhConfig
 	}
 

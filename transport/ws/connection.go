@@ -7,13 +7,13 @@ import (
 )
 
 type connection interface {
-	tuner
+	Tuner
 	rw
 	controller
 	closer
 }
 
-type tuner interface {
+type Tuner interface {
 	EnableWriteCompression(enable bool)
 	SetCompressionLevel(level int) error
 	SetReadLimit(limit int64)
@@ -37,19 +37,6 @@ type closer interface {
 	Close() error
 }
 
-type enhPreset struct {
-	read struct {
-		limit int64
-	}
-
-	write struct {
-		compression struct {
-			enable bool
-			level  int
-		}
-	}
-}
-
 type enhConfig struct {
 	read struct {
 		timeout time.Duration
@@ -64,19 +51,6 @@ type enhConfig struct {
 type enhConn struct {
 	connection
 	cfg enhConfig
-}
-
-func enhance(preset enhPreset, cfg enhConfig, conn connection) (*enhConn, error) {
-	if preset.write.compression.enable {
-		conn.EnableWriteCompression(true)
-		if err := conn.SetCompressionLevel(preset.write.compression.level); err != nil {
-			return nil, err
-		}
-	}
-	if preset.read.limit > 0 {
-		conn.SetReadLimit(preset.read.limit)
-	}
-	return &enhConn{conn, cfg}, nil
 }
 
 func (c *enhConn) ReadMessage() (messageType int, p []byte, err error) {
