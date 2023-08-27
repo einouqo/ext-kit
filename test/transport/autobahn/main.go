@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net/http"
 )
@@ -18,6 +19,7 @@ func main() {
 	http.HandleFunc("/m", bindings.M.ServeHTTP)
 	http.HandleFunc("/p", bindings.P.ServeHTTP)
 
+	fmt.Println("Listening on", *addr)
 	if err := http.ListenAndServe(*addr, nil); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}

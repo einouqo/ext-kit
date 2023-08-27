@@ -23,4 +23,29 @@ jobs:
         uses: ./.github/actions/prepare
       - name: run tests
         run: go test -v ./test/... --race --timeout 1m -tags=integration
+  ws-autobahn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: prepare
+        uses: ./.github/actions/prepare
+      - name: make report directory
+        run: mkdir -p ./test/transport/autobahn/reports
+      - name: run server
+        run: go run ./test/transport/autobahn/ &
+      - name: run suit
+        run: |
+          docker run -i --rm \
+            -v ./test/transport/autobahn/config:/config \
+            -v ./test/transport/autobahn/reports:/reports \
+            crossbario/autobahn-testsuite \
+            wstest -m fuzzingclient -s /config/fuzzingclient.json
+      - name: upload report
+        uses: actions/upload-artifact@v3
+        with:
+          name: ws-autobahn-report
+          path: ./test/transport/autobahn/reports
+
+
 
