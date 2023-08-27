@@ -1,6 +1,6 @@
 # Go ext kit
 
-![Go Version](https://img.shields.io/badge/go-1.19+-blue.svg)
+![Go Version](https://img.shields.io/badge/go-1.18+-blue.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/einouqo/ext-kit)](https://goreportcard.com/report/github.com/einouqo/ext-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -10,17 +10,16 @@ This project is a modern Go language extension of the popular [go-kit](https://g
 
 While `go-kit` is a powerful toolkit for developing microservices in Go, it lacked support for some crucial features - gRPC streams and WebSocket transport. These two elements are increasingly fundamental to modern software architectures, enabling efficient, real-time data exchange.
 
-Recognizing the need for these features, I saw an opportunity to augment `go-kit`'s capabilities by adding them. But the integration of gRPC streams and WebSocket transport wasn't just about introducing new features - it was about embracing the evolving landscape of Go. By using the modern Go features such as generics, I've aimed to deliver a more advanced, seamless, and comprehensive toolkit for developers.
+Recognizing the need for these features, there emerged an opportunity to enhance go-kit's capabilities by incorporating them. However, integrating gRPC streams and WebSocket transport went beyond simply adding new features - it reflected an adaptation to the evolving landscape of Go. Leveraging modern Go features like generics, the goal was to provide a more advanced, seamless, and comprehensive toolkit for developers.
 
 ## Features
 
-- gRPC Streams: Built to support robust client-side, server-side and bi-side streaming.
-- WebSocket Transport: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
+- **Streaming friendly endpoint abstractions** that supports both gRPC and WebSocket transport.
+- **gRPC Streams**: Built to support robust client-side, server-side and bi-side streaming.
+- **WebSocket**: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
 - Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](/xrequestid/handler.go) for requests tagging, [Chain](/util/middleware.go) for middlewares e.g.) to expedite your Go application development.
 
-## Getting Started
-
-Please follow these steps to get started with the project.
+## Installation
 
 ```bash
 go get github.com/einouqo/ext-kit
@@ -64,12 +63,11 @@ func NewClientBinding(cc *grpc.ClientConn) *ClientBinding {
 
 Make a call:
 ```go
-sendC := make(chan service.EchoRequest) // send your requests to the channel in the way you want
-receive, stop, err := client.BiStream(ctx, sendC)
+sendCh := make(chan service.EchoRequest) // send your requests to the channel in the way you want
+receive, err := client.BiStream(ctx, sendCh)
 if err != nil {
     // handle error
 }
-defer stop()
 for {
     msg, err := receive()
     switch {
@@ -83,74 +81,11 @@ for {
 ```
 
 #### WebSocket
-The usage is pretty close to gRPC Bi-Directional Streaming, but with WebSocket transport inside.
+The usage is pretty close to gRPC Bi-Directional Streaming (the example above), but with WebSocket transport inside.
 
 You can also refer to the [tests](test/transport/ws) for more examples.
 
-**Server:**
-```go
-func NewServerBinding(svc Service, opts ...ws.ServerOption) *ServerBinding {
-	return &ServerBinding{
-		/* ... */
-		Stream: ws.NewServer(
-			svc.Bi,
-			decodeRequest,
-			encodeResponse,
-			closer,
-			opts...,
-		),
-	}
-}
-
-func closer(_ context.Context, err error) (code ws.CloseCode, msg string, deadline time.Time) {
-	if err != nil {
-		return ws.InternalServerErrCloseCode, err.Error(), time.Now().Add(time.Second)
-	}
-	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
-}
-```
-
-**Client:**
-```go
-func NewClientBinding(url url.URL, opts ...ws.ClientOption) *ClientBinding {
-	return &ClientBinding{
-		/* ... */
-		Stream: ws.NewClient(
-			url,
-			encodeRequest,
-			decodeResponse,
-			closer,
-			opts...,
-		).Endpoint(),
-	}
-}
-
-func closer(context.Context, error) (code ws.CloseCode, msg string, deadline time.Time) {
-	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
-}
-```
-
-Make a call:
-```go
-sendC := make(chan service.EchoRequest) // send your requests to the channel in the way you want
-receive, stop, err := client.Stream(ctx, sendC)
-if err != nil {
-    // handle error
-}
-defer stop()
-for {
-    msg, err := receive()
-    switch {
-    case errors.Is(err, endpoint.StreamDone):
-        return
-    case err != nil:
-        // handle error
-    }
-    // handle message
-}
-```
-
-**Note:** while closing `sendC` channel leads to closing send direction of the stream in case of gRPC, while closing `sendC` channel leads to sending a close control message and following connection close in case of WebSocket.
+**Note:** while closing `sendCh` channel leads to closing send direction of the stream in case of gRPC, while closing `sendCh` channel leads to sending a close control message and following connection close in case of WebSocket.
 
 ## License
 
