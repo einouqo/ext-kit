@@ -62,8 +62,6 @@ func WithClientPing(period, await time.Duration, pinging Pinging) ClientOption {
 	}}
 }
 
-var withClientNothing = funcClientOption{f: func(*clientOptions) {}}
-
 type funcClientOption struct {
 	f func(o *clientOptions)
 }

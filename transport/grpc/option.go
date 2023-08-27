@@ -76,8 +76,6 @@ func WithServerErrorHandler(handler transport.ErrorHandler) ServerOption {
 	}}
 }
 
-var withServerNothing = funcServerOption{f: func(*serverOptions) {}}
-
 type funcServerOption struct {
 	f func(o *serverOptions)
 }

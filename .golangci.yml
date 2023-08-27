@@ -18,6 +18,7 @@ output:
 
 linters:
   disable:
+    - depguard
     - exhaustruct
     - exhaustivestruct
     - varcheck
@@ -129,5 +130,8 @@ issues:
     - linters:
         - errcheck
       source: ^\s*defer .*$
+    - linters:
+        - revive
+      text: 'if-return: redundant if ...;'
 
 

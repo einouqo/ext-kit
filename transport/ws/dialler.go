@@ -11,6 +11,7 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
+//nolint:interfacebloat
 type Dialler interface {
 	SetNetDial(dial func(network, addr string) (net.Conn, error))
 	SetNetDialContext(func(ctx context.Context, network, addr string) (net.Conn, error))

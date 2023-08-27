@@ -63,6 +63,7 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				_ = wsc.Close()
 			}
 		}()
+		defer resp.Body.Close()
 
 		for _, f := range c.opts.after {
 			ctx = f(ctx, resp, wsc)

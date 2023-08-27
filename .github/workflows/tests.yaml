@@ -22,5 +22,5 @@ jobs:
       - name: prepare
         uses: ./.github/actions/prepare
       - name: run tests
-        run: go test -v ./... --race --timeout 1m -tags=integration
+        run: go test -v ./test/... --race --timeout 1m -tags=integration
 
