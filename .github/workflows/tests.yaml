@@ -32,11 +32,14 @@ jobs:
         uses: ./.github/actions/prepare
       - name: make report directory
         run: mkdir -p ./test/transport/autobahn/reports
+      - name: prepare config
+        run: sed 's/host.docker.internal/localhost/g' ./test/transport/autobahn/config/fuzzingclient.json -i
       - name: run server
         run: go run ./test/transport/autobahn/ &
       - name: run suit
         run: |
           docker run -i --rm \
+            --network="host" \
             -v ./test/transport/autobahn/config:/config \
             -v ./test/transport/autobahn/reports:/reports \
             crossbario/autobahn-testsuite \
