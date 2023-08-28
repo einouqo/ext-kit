@@ -1,3 +1,6 @@
+//go:build integration
+// +build integration
+
 package ws
 
 import (
@@ -14,7 +17,7 @@ import (
 	"golang.org/x/exp/slices"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 

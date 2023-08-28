@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"syscall"
 
 	"github.com/fasthttp/websocket"
@@ -48,13 +49,12 @@ func NewClient[OUT, IN any](
 func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 	return func(ctx context.Context, receiver <-chan OUT) (rcv endpoint.Receive[IN], err error) {
 		headers := &http.Header{}
+		dialer := dialler{websocket.DefaultDialer}
 		for _, f := range c.opts.before {
-			ctx = f(ctx, headers)
+			ctx = f(ctx, dialer, headers)
 		}
 
-		wsc, resp, err := c.dialer(
-			c.opts.enhancement.preset.write.compression.enable,
-		).DialContext(ctx, c.url.String(), *headers)
+		wsc, resp, err := dialer.DialContext(ctx, c.url.String(), *headers)
 		if err != nil {
 			return nil, err
 		}
@@ -63,25 +63,24 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				_ = wsc.Close()
 			}
 		}()
+		defer resp.Body.Close()
 
 		for _, f := range c.opts.after {
-			ctx = f(ctx, resp)
+			ctx = f(ctx, resp, wsc)
 		}
 
-		conn, err := enhance(c.opts.enhancement.preset, c.opts.enhancement.config, wsc)
-		if err != nil {
-			return nil, err
-		}
+		conn := enhConn{wsc, c.opts.enhancement.config}
 
+		once := sync.Once{}
 		doneCh := make(chan struct{})
 		group := errgroup.Group{}
 		group.Go(func() (err error) {
 			defer close(doneCh)
-			defer func() {
+			defer once.Do(func() {
 				code, msg, deadline := c.closure(ctx, err)
 				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
 				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
-			}()
+			})
 			for {
 				select {
 				case <-ctx.Done():
@@ -119,6 +118,11 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			}
 			defer close(inCh)
 			defer conn.Close()
+			defer once.Do(func() {
+				code, msg, deadline := c.closure(ctx, err)
+				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
+			})
 			for {
 				messageType, msg, err := conn.ReadMessage()
 				switch {
@@ -167,25 +171,13 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 	}
 }
 
-func (c *Client[OUT, IN]) dialer(compression bool) *websocket.Dialer {
-	if c.opts.dialer != nil {
-		return c.opts.dialer
-	}
-	dd := websocket.DefaultDialer
-	dd.EnableCompression = compression
-	return dd
-}
-
 type clientOptions struct {
-	dialer *websocket.Dialer
-
-	before      []ClientHeaderFunc
-	after       []ClientResponseFunc
+	before      []DiallerFunc
+	after       []ClientTunerFunc
 	finalizer   []kithttp.ClientFinalizerFunc
 	errHandlers []transport.ErrorHandler
 
 	enhancement struct {
-		preset enhPreset
 		config enhConfig
 	}
 

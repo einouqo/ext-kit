@@ -1,0 +1,22 @@
+name: Prepare
+description: 'Checkout and Cache'
+runs:
+  using: "composite"
+  steps:
+    - name: setup golang
+      uses: actions/setup-go@v4
+      with:
+        go-version-file: 'go.mod'
+    - name: clear go mod cache
+      run: sudo rm -rf $GOMODCACHE
+      shell: bash
+    - name: connect go mod cache
+      id: cache-gomod
+      uses: actions/cache@v3
+      with:
+        path: /tmp/go/pkg/mod
+        key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
+    - name: check cache
+      if: steps.cache-gomod.outputs.cache-hit != 'true'
+      run: exit 1
+      shell: bash

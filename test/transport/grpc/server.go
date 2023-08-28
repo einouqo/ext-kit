@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/test/transport/grpc/pb"
 	kitgrpc "github.com/einouqo/ext-kit/transport/grpc"
 )

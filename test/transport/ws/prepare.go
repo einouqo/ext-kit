@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 

@@ -10,20 +10,45 @@ jobs:
     steps:
       - name: checkout repo
         uses: actions/checkout@v3
-      - name: setup golang
-        uses: actions/setup-go@v4
+      - name: prepare
+        uses: ./.github/actions/prepare
+      - name: run tests
+        run: go test -v -covermode atomic ./... --race --timeout 1m
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: prepare
+        uses: ./.github/actions/prepare
+      - name: run tests
+        run: go test -v ./test/... --race --timeout 1m -tags=integration
+  ws-autobahn:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v3
+      - name: prepare
+        uses: ./.github/actions/prepare
+      - name: make report directory
+        run: mkdir -p ./test/transport/autobahn/reports
+      - name: prepare config
+        run: sed 's/host.docker.internal/localhost/g' ./test/transport/autobahn/config/fuzzingclient.json -i
+      - name: run server
+        run: go run ./test/transport/autobahn/ &
+      - name: run suit
+        run: |
+          docker run -i --rm \
+            --network="host" \
+            -v ./test/transport/autobahn/config:/config \
+            -v ./test/transport/autobahn/reports:/reports \
+            crossbario/autobahn-testsuite \
+            wstest -m fuzzingclient -s /config/fuzzingclient.json
+      - name: upload report
+        uses: actions/upload-artifact@v3
         with:
-          go-version-file: 'go.mod'
-      - name: clear go mod cache
-        run: sudo rm -rf $GOMODCACHE
-      - name: connect go mod cache
-        id: cache-gomod
-        uses: actions/cache@v3
-        with:
-          path: /tmp/go/pkg/mod
-          key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
-      - name: check cache
-        if: steps.cache-gomod.outputs.cache-hit != 'true'
-        run: exit 1
-      - name: run unit
-        run: go test -v -covermode atomic ./... --race  --timeout 1m
+          name: ws-autobahn-report
+          path: ./test/transport/autobahn/reports
+
+
+

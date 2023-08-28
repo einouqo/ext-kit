@@ -3,7 +3,6 @@ package ws
 import (
 	"time"
 
-	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
 )
@@ -12,19 +11,13 @@ type ClientOption interface {
 	apply(*clientOptions)
 }
 
-func WithClientDialler(dialer *websocket.Dialer) ClientOption {
-	return funcClientOption{f: func(o *clientOptions) {
-		o.dialer = dialer
-	}}
-}
-
-func WithClientBefore(before ClientHeaderFunc) ClientOption {
+func WithClientBefore(before DiallerFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.before = append(o.before, before)
 	}}
 }
 
-func WithClientAfter(after ClientResponseFunc) ClientOption {
+func WithClientAfter(after ClientTunerFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.after = append(o.after, after)
 	}}
@@ -48,22 +41,15 @@ func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	}}
 }
 
-func WithClientWriteCompression(level int) ClientOption {
+func WithClientWriteMod(mod WriteMod) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.preset.write.compression.enable = true
-		o.enhancement.preset.write.compression.level = level
+		o.enhancement.config.write.mod = mod
 	}}
 }
 
 func WithClientReadTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.enhancement.config.read.timeout = timeout
-	}}
-}
-
-func WithClientReadLimit(limit int64) ClientOption {
-	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.preset.read.limit = limit
 	}}
 }
 
@@ -75,8 +61,6 @@ func WithClientPing(period, await time.Duration, pinging Pinging) ClientOption {
 		o.heartbeat.config.pinging = pinging
 	}}
 }
-
-var withClientNothing = funcClientOption{f: func(*clientOptions) {}}
 
 type funcClientOption struct {
 	f func(o *clientOptions)
@@ -90,13 +74,7 @@ type ServerOption interface {
 	apply(*serverOptions)
 }
 
-func WithServerUpgrader(upgrader *websocket.Upgrader) ServerOption {
-	return funcServerOption{f: func(o *serverOptions) {
-		o.upgrader = upgrader
-	}}
-}
-
-func WithServerBefore(before ServerHeaderFunc) ServerOption {
+func WithServerBefore(before UpgradeFunc) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.before = append(o.before, before)
 	}}
@@ -120,22 +98,15 @@ func WithServerReadTimeout(timeout time.Duration) ServerOption {
 	}}
 }
 
-func WithServerReadLimit(limit int64) ServerOption {
-	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.preset.read.limit = limit
-	}}
-}
-
 func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.enhancement.config.write.timeout = timeout
 	}}
 }
 
-func WithServerWriteCompression(level int) ServerOption {
+func WithServerWriteMod(mod WriteMod) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.preset.write.compression.enable = true
-		o.enhancement.preset.write.compression.level = level
+		o.enhancement.config.write.mod = mod
 	}}
 }
 

@@ -83,7 +83,7 @@ for {
 #### WebSocket
 The usage is pretty close to gRPC Bi-Directional Streaming (the example above), but with WebSocket transport inside.
 
-You can also refer to the [tests](test/transport/ws) for more examples.
+You can also refer to the [tests](test/transport/ws) or [autobahn](test/transport/autobahn) implementation for more examples.
 
 **Note:** while closing `sendCh` channel leads to closing send direction of the stream in case of gRPC, while closing `sendCh` channel leads to sending a close control message and following connection close in case of WebSocket.
 
