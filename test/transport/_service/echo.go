@@ -35,8 +35,7 @@ func (s Echo) Once(_ context.Context, req EchoRequest) (EchoResponse, error) {
 	return EchoResponse{Messages: []string{req.Message}}, nil
 }
 
-func (s Echo) Inner(ctx context.Context, req EchoRequest) (endpoint.Receive[EchoResponse], endpoint.Stop, error) {
-	ctx, cancel := context.WithCancel(ctx)
+func (s Echo) Inner(ctx context.Context, req EchoRequest) (endpoint.Receive[EchoResponse], error) {
 	respC := make(chan EchoResponse)
 	errC := make(chan error, 1)
 	go func() {
@@ -68,7 +67,7 @@ func (s Echo) Inner(ctx context.Context, req EchoRequest) (endpoint.Receive[Echo
 			return EchoResponse{}, err
 		}
 		return EchoResponse{}, endpoint.StreamDone
-	}, cancel, nil
+	}, nil
 }
 
 func (s Echo) Outer(_ context.Context, receiver <-chan EchoRequest) (EchoResponse, error) {
@@ -87,8 +86,7 @@ func (s Echo) Outer(_ context.Context, receiver <-chan EchoRequest) (EchoRespons
 	return EchoResponse{Messages: msgs}, nil
 }
 
-func (s Echo) Bi(ctx context.Context, receiver <-chan EchoRequest) (endpoint.Receive[EchoResponse], endpoint.Stop, error) {
-	ctx, cancel := context.WithCancel(ctx)
+func (s Echo) Bi(ctx context.Context, receiver <-chan EchoRequest) (endpoint.Receive[EchoResponse], error) {
 	respC := make(chan EchoResponse)
 	errC := make(chan error, 1)
 	go func() {
@@ -122,5 +120,5 @@ func (s Echo) Bi(ctx context.Context, receiver <-chan EchoRequest) (endpoint.Rec
 			return EchoResponse{}, err
 		}
 		return EchoResponse{}, endpoint.StreamDone
-	}, cancel, nil
+	}, nil
 }

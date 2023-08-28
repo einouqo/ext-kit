@@ -3,7 +3,6 @@ package ws
 import (
 	"time"
 
-	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
 )
@@ -12,19 +11,13 @@ type ClientOption interface {
 	apply(*clientOptions)
 }
 
-func WithClientDialler(dialer *websocket.Dialer) ClientOption {
-	return funcClientOption{f: func(o *clientOptions) {
-		o.dialer = dialer
-	}}
-}
-
-func WithClientBefore(before ClientRequestFunc) ClientOption {
+func WithClientBefore(before DiallerFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.before = append(o.before, before)
 	}}
 }
 
-func WithClientAfter(after ClientConnectionFunc) ClientOption {
+func WithClientAfter(after ClientTunerFunc) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.after = append(o.after, after)
 	}}
@@ -44,26 +37,30 @@ func WithClientErrorHandler(handler transport.ErrorHandler) ClientOption {
 
 func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.timeout.write = timeout
+		o.enhancement.config.write.timeout = timeout
+	}}
+}
+
+func WithClientWriteMod(mod WriteMod) ClientOption {
+	return funcClientOption{f: func(o *clientOptions) {
+		o.enhancement.config.write.mod = mod
 	}}
 }
 
 func WithClientReadTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.timeout.read = timeout
+		o.enhancement.config.read.timeout = timeout
 	}}
 }
 
 func WithClientPing(period, await time.Duration, pinging Pinging) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
 		o.heartbeat.enable = true
-		o.heartbeat.period = period
-		o.heartbeat.await = await
-		o.heartbeat.pinging = pinging
+		o.heartbeat.config.period = period
+		o.heartbeat.config.await = await
+		o.heartbeat.config.pinging = pinging
 	}}
 }
-
-var withClientNothing = funcClientOption{f: func(*clientOptions) {}}
 
 type funcClientOption struct {
 	f func(o *clientOptions)
@@ -77,21 +74,9 @@ type ServerOption interface {
 	apply(*serverOptions)
 }
 
-func WithServerUpgrader(upgrader *websocket.Upgrader) ServerOption {
-	return funcServerOption{f: func(o *serverOptions) {
-		o.upgrader = upgrader
-	}}
-}
-
-func WithServerBefore(before ServerRequestFunc) ServerOption {
+func WithServerBefore(before UpgradeFunc) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.before = append(o.before, before)
-	}}
-}
-
-func WithServerAfter(after ServerConnectionFunc) ServerOption {
-	return funcServerOption{f: func(o *serverOptions) {
-		o.after = append(o.after, after)
 	}}
 }
 
@@ -109,22 +94,28 @@ func WithServerErrorHandler(handler transport.ErrorHandler) ServerOption {
 
 func WithServerReadTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.timeout.read = timeout
+		o.enhancement.config.read.timeout = timeout
 	}}
 }
 
 func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.timeout.write = timeout
+		o.enhancement.config.write.timeout = timeout
+	}}
+}
+
+func WithServerWriteMod(mod WriteMod) ServerOption {
+	return funcServerOption{f: func(o *serverOptions) {
+		o.enhancement.config.write.mod = mod
 	}}
 }
 
 func WithServerPing(period, await time.Duration, pinging Pinging) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
 		o.heartbeat.enable = true
-		o.heartbeat.period = period
-		o.heartbeat.await = await
-		o.heartbeat.pinging = pinging
+		o.heartbeat.config.period = period
+		o.heartbeat.config.await = await
+		o.heartbeat.config.pinging = pinging
 	}}
 }
 

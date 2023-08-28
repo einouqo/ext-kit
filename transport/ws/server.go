@@ -5,12 +5,13 @@ import (
 	"errors"
 	"net"
 	"net/http"
-	"time"
+	"sync"
+	"syscall"
 
 	"github.com/fasthttp/websocket"
 	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
-	"github.com/hashicorp/go-multierror"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/einouqo/ext-kit/endpoint"
 )
@@ -67,56 +68,44 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	headers := &http.Header{}
+	upg := upgrader{new(websocket.Upgrader)}
 	for _, f := range s.opts.before {
-		ctx = f(ctx, r.Header, headers)
+		ctx = f(ctx, upg, r, headers)
 	}
 
-	conn, err := s.upgrader().Upgrade(w, r, *headers)
+	wsc, err := upg.Upgrade(w, r, *headers)
+	if err != nil {
+		return err
+	}
+	defer wsc.Close()
+
+	for _, f := range s.opts.after {
+		ctx = f(ctx, wsc)
+	}
+
+	conn := enhConn{wsc, s.opts.enhancement.config}
+
+	inCh := make(chan IN)
+	receive, err := s.e(ctx, inCh)
 	if err != nil {
 		return err
 	}
 
-	for _, f := range s.opts.after {
-		ctx = f(ctx, conn)
-	}
-
-	inC := make(chan IN)
-	receive, stop, err := s.e(ctx, inC)
-	if err != nil {
-		return multierror.Append(err, conn.Close()).ErrorOrNil()
-	}
-
-	pongC := make(chan struct{})
-	defer close(pongC)
-	handler := conn.PongHandler()
-	conn.SetPongHandler(func(msg string) error {
-		if s.opts.heartbeat.enable {
-			pongC <- struct{}{}
-		}
-		return handler(msg)
-	})
-
-	doneC := make(chan struct{})
-	group := multierror.Group{}
+	once := sync.Once{}
+	doneCh := make(chan struct{})
+	group := errgroup.Group{}
 	group.Go(func() (err error) {
-		defer close(inC)
-		defer func() {
-			if err != nil {
-				cancel()
-			}
-		}()
+		defer close(inCh)
+		defer conn.Close()
+		defer once.Do(func() {
+			code, msg, deadline := s.closure(ctx, err)
+			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
+		})
 		for {
-			if err := s.updateReadDeadline(conn); err != nil {
-				return err
-			}
 			messageType, msg, err := conn.ReadMessage()
 			switch {
-			case errors.Is(err, net.ErrClosed):
-				return nil
 			case websocket.IsCloseError(err, websocket.CloseNormalClosure):
 				return nil
 			case err != nil:
@@ -128,25 +117,19 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				return err
 			}
 			select {
-			case <-doneC:
+			case <-doneCh:
 				return nil
-			case inC <- in:
+			case inCh <- in:
 			}
 		}
 	})
 	group.Go(func() (err error) {
-		defer close(doneC)
-		defer func() {
+		defer close(doneCh)
+		defer once.Do(func() {
 			code, msg, deadline := s.closure(ctx, err)
-			err = multierror.Append(
-				err,
-				conn.WriteControl(
-					websocket.CloseMessage,
-					websocket.FormatCloseMessage(code.fastsocket(), msg),
-					deadline,
-				),
-			).ErrorOrNil()
-		}()
+			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
+			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
+		})
 		for {
 			out, err := receive()
 			switch {
@@ -159,12 +142,13 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 			if err != nil {
 				return err
 			}
-			if err := s.updateWriteDeadline(conn); err != nil {
-				return err
-			}
 			err = conn.WriteMessage(mt.fastsocket(), msg)
 			switch {
 			case errors.Is(err, net.ErrClosed):
+				return nil
+			case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
+				return nil
+			case errors.Is(err, websocket.ErrCloseSent):
 				return nil
 			case err != nil:
 				return err
@@ -172,98 +156,32 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 		}
 	})
 
-	timeoutC := make(chan struct{})
-	control := multierror.Group{}
-	control.Go(func() error {
-		defer stop()
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-doneC:
-			return nil
-		}
-	})
-	control.Go(func() error {
-		select {
-		case <-doneC:
-		case <-timeoutC:
-		}
-		return conn.Close()
-	})
 	if s.opts.heartbeat.enable {
-		control.Go(func() error {
-			defer close(timeoutC)
-			ticker := time.NewTicker(s.opts.heartbeat.period)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					msg, deadline := s.opts.heartbeat.pinging(ctx)
-					if err := conn.WriteControl(websocket.PingMessage, msg, deadline); err != nil {
-						return err
-					}
-				case <-doneC:
-					return nil
-				}
-				select {
-				case <-time.After(s.opts.heartbeat.await):
-					return context.DeadlineExceeded
-				case <-pongC:
-					// nothing
-				}
-				ticker.Reset(s.opts.heartbeat.period)
-			}
+		group.Go(func() error {
+			defer conn.Close()
+			return heartbeat(ctx, s.opts.heartbeat.config, conn, doneCh)
 		})
 	}
 
-	if err = multierror.Append(
-		group.Wait(),
-		control.Wait(),
-	).ErrorOrNil(); err != nil {
+	if err := group.Wait(); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *Server[IN, OUT]) upgrader() *websocket.Upgrader {
-	if s.opts.upgrader != nil {
-		return s.opts.upgrader
-	}
-	return &websocket.Upgrader{}
-}
-
-func (s *Server[IN, OUT]) updateWriteDeadline(conn *websocket.Conn) error {
-	if s.opts.timeout.write > 0 {
-		deadline := time.Now().Add(s.opts.timeout.write)
-		return conn.SetWriteDeadline(deadline)
-	}
-	return nil
-}
-
-func (s *Server[IN, OUT]) updateReadDeadline(conn *websocket.Conn) error {
-	if s.opts.timeout.read > 0 {
-		deadline := time.Now().Add(s.opts.timeout.read)
-		return conn.SetReadDeadline(deadline)
-	}
-	return nil
-}
-
 type serverOptions struct {
-	upgrader *websocket.Upgrader
-
-	before      []ServerRequestFunc
-	after       []ServerConnectionFunc
+	before      []UpgradeFunc
+	after       []ServerTunerFunc
 	finalizer   []kithttp.ServerFinalizerFunc
 	errHandlers []transport.ErrorHandler
 
-	timeout struct {
-		read, write time.Duration
+	enhancement struct {
+		config enhConfig
 	}
 
 	heartbeat struct {
-		enable        bool
-		period, await time.Duration
-		pinging       Pinging
+		enable bool
+		config hbConfig
 	}
 }

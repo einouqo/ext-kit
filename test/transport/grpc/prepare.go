@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/test/transport/grpc/pb"
 	kitgrpc "github.com/einouqo/ext-kit/transport/grpc"
 )
@@ -38,13 +38,13 @@ func prepareClientPB(address string) (client pb.EchoClient, tidy func(), err err
 	return client, func() { _ = cc.Close() }, nil
 }
 
-func prepareClient(address string) (client *ClientBinding, tidy func(), err error) {
+func prepareClient(address string, opts ...kitgrpc.ClientOption) (client *ClientBinding, tidy func(), err error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to Dial: %+v", err)
 	}
 
-	client = NewClientBinding(cc)
+	client = NewClientBinding(cc, opts...)
 
 	return client, func() { _ = cc.Close() }, nil
 }

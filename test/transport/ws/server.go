@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
 type Service interface {
-	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], endpoint.Stop, error)
+	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], error)
 }
 
 type ServerBinding struct {

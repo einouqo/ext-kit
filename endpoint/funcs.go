@@ -7,5 +7,3 @@ var (
 )
 
 type Receive[T any] func() (T, error)
-
-type Stop = func()

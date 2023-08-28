@@ -4,16 +4,16 @@ import (
 	"context"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/service"
+	"github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/test/transport/grpc/pb"
 	kitgrpc "github.com/einouqo/ext-kit/transport/grpc"
 )
 
 type Service interface {
 	Once(ctx context.Context, req service.EchoRequest) (service.EchoResponse, error)
-	Inner(ctx context.Context, req service.EchoRequest) (endpoint.Receive[service.EchoResponse], endpoint.Stop, error)
+	Inner(ctx context.Context, req service.EchoRequest) (endpoint.Receive[service.EchoResponse], error)
 	Outer(ctx context.Context, receiver <-chan service.EchoRequest) (service.EchoResponse, error)
-	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], endpoint.Stop, error)
+	Bi(ctx context.Context, receiver <-chan service.EchoRequest) (endpoint.Receive[service.EchoResponse], error)
 }
 
 type ServerBinding struct {

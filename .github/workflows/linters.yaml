@@ -10,24 +10,11 @@ jobs:
     steps:
       - name: checkout repo
         uses: actions/checkout@v3
-      - name: setup golang
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: 'go.mod'
-      - name: clear go mod cache
-        run: sudo rm -rf $GOMODCACHE
-      - name: connect go mod cache
-        id: cache-gomod
-        uses: actions/cache@v3
-        with:
-          path: /tmp/go/pkg/mod
-          key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
+      - name: prepare
+        uses: ./.github/actions/prepare
       - name: setup golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.50.1
-      - name: check cache
-        if: steps.cache-gomod.outputs.cache-hit != 'true'
-        run: exit 1
+          version: v1.54
       - name: run golangci-lint
         run: golangci-lint run

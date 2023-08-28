@@ -10,10 +10,10 @@ type Closure func(context.Context, error) (code CloseCode, msg string, deadline 
 
 type Pinging func(context.Context) (msg []byte, deadline time.Time)
 
-type ClientRequestFunc func(context.Context, *http.Header) context.Context
+type DiallerFunc func(context.Context, Dialler, *http.Header) context.Context
 
-type ClientConnectionFunc func(context.Context, Connection) context.Context
+type UpgradeFunc func(context.Context, Upgrader, *http.Request, *http.Header) context.Context
 
-type ServerRequestFunc func(ctx context.Context, req http.Header, upg *http.Header) context.Context
+type ClientTunerFunc func(context.Context, *http.Response, Tuner) context.Context
 
-type ServerConnectionFunc func(context.Context, Connection) context.Context
+type ServerTunerFunc func(context.Context, Tuner) context.Context
