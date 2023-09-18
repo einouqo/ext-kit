@@ -2,6 +2,7 @@ package xrequestid
 
 import (
 	"context"
+	"net/http"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/tap"
@@ -12,15 +13,18 @@ type Generator interface {
 }
 
 type Handler struct {
-	gen Generator
+	gen    Generator
+	header string
 }
 
 func New(opts ...Option) *Handler {
-	h := new(Handler)
+	h := &Handler{
+		gen:    ShortuuidGenerator{},
+		header: "X-Request-ID",
+	}
 	for _, opt := range opts {
 		opt(h)
 	}
-	h.prepare()
 	return h
 }
 
@@ -39,6 +43,17 @@ func (h *Handler) UnaryInterceptor(
 	return handler(ctx, req)
 }
 
+func (h *Handler) PopulateHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		xid := r.Header.Get(h.header)
+		if xid == "" {
+			xid = h.gen.Generate()
+		}
+		ctx := Populate(r.Context(), xid)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 func (h *Handler) populate(parent context.Context) context.Context {
 	_, ok := Get(parent)
 	if ok {
@@ -47,10 +62,4 @@ func (h *Handler) populate(parent context.Context) context.Context {
 	xid := h.gen.Generate()
 	ctx := Populate(parent, xid)
 	return ctx
-}
-
-func (h *Handler) prepare() {
-	if h.gen == nil {
-		h.gen = ShortuuidGenerator{}
-	}
 }

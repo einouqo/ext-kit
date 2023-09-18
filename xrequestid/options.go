@@ -7,3 +7,9 @@ func WithGenerator(gen Generator) Option {
 		handler.gen = gen
 	}
 }
+
+func WithHeaderHTTP(header string) Option {
+	return func(handler *Handler) {
+		handler.header = header
+	}
+}
