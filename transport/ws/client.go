@@ -48,13 +48,13 @@ func NewClient[OUT, IN any](
 
 func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 	return func(ctx context.Context, receiver <-chan OUT) (rcv endpoint.Receive[IN], err error) {
-		headers := &http.Header{}
+		headers := make(http.Header)
 		dialer := dialler{websocket.DefaultDialer}
 		for _, f := range c.opts.before {
 			ctx = f(ctx, dialer, headers)
 		}
 
-		wsc, resp, err := dialer.DialContext(ctx, c.url.String(), *headers)
+		wsc, resp, err := dialer.DialContext(ctx, c.url.String(), headers)
 		if err != nil {
 			return nil, err
 		}
