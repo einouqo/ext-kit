@@ -69,7 +69,7 @@ func closer(_ context.Context, err error) (code ws.CloseCode, msg string, deadli
 	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
 }
 
-func upgrade(ctx context.Context, upg ws.Upgrader, _ *http.Request, _ *http.Header) context.Context {
+func upgrade(ctx context.Context, upg ws.Upgrader, _ *http.Request, _ http.Header) context.Context {
 	upg.SetReadBufferSize(1 << 12)
 	upg.SetWriteBufferSize(1 << 12)
 	upg.SetEnableCompression(true)

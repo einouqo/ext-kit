@@ -68,13 +68,13 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
-	headers := &http.Header{}
+	headers := make(http.Header)
 	upg := upgrader{new(websocket.Upgrader)}
 	for _, f := range s.opts.before {
 		ctx = f(ctx, upg, r, headers)
 	}
 
-	wsc, err := upg.Upgrade(w, r, *headers)
+	wsc, err := upg.Upgrade(w, r, headers)
 	if err != nil {
 		return err
 	}

@@ -33,6 +33,10 @@ You can refer to the [tests](test/transport/grpc) for more examples.
 
 **Server:**
 ```go
+type Service interface {
+	Bi(ctx context.Context, receiver <-chan string) (endpoint.Receive[string], error)
+}
+
 func NewServerBinding(svc Service, opts ...kitgrpc.ServerOption) *ServerBinding {
 	return &ServerBinding{
 		/* ... */
@@ -63,8 +67,8 @@ func NewClientBinding(cc *grpc.ClientConn) *ClientBinding {
 
 Make a call:
 ```go
-sendCh := make(chan service.EchoRequest) // send your requests to the channel in the way you want
-receive, err := client.BiStream(ctx, sendCh)
+send := make(chan service.EchoRequest) // send your requests to the channel in the way you want
+receive, err := client.BiStream(ctx, send)
 if err != nil {
     // handle error
 }
@@ -85,7 +89,7 @@ The usage is pretty close to gRPC Bi-Directional Streaming (the example above), 
 
 You can also refer to the [tests](test/transport/ws) or [autobahn](test/transport/autobahn) implementation for more examples.
 
-**Note:** while closing `sendCh` channel leads to closing send direction of the stream in case of gRPC, while closing `sendCh` channel leads to sending a close control message and following connection close in case of WebSocket.
+**Note:** closing `send` channel leads to closing send direction of the stream in case of gRPC, while closing `send` channel leads to sending a close control message and following connection close in case of WebSocket.
 
 ## License
 
