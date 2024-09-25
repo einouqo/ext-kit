@@ -1,6 +1,6 @@
 module github.com/einouqo/ext-kit
 
-go 1.21
+go 1.22
 
 require (
 	github.com/fasthttp/websocket v1.5.10
