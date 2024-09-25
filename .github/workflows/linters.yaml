@@ -15,6 +15,6 @@ jobs:
       - name: setup golangci-lint
         uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.54
+          version: v1.60.3
       - name: run golangci-lint
         run: golangci-lint run
