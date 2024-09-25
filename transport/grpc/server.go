@@ -235,12 +235,10 @@ func NewServerOuterStream[RECEIVE proto.Message, IN, OUT any](
 	var receive RECEIVE
 	s := &ServerOuterStream[IN, OUT]{
 		server: server[IN, OUT, endpoint.OuterStream[IN, OUT]]{
-			e:   e,
-			dec: dec,
-			enc: enc,
-			reflectReceive: reflect.New(
-				reflect.TypeOf(receive).Elem(),
-			),
+			e:       e,
+			dec:     dec,
+			enc:     enc,
+			receive: reflect.TypeOf(receive).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -283,7 +281,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 	group.Go(func() error {
 		defer close(inCh)
 		for {
-			msg := srv.reflectReceive.Interface().(proto.Message)
+			msg := reflect.New(srv.receive).Interface().(proto.Message)
 			err := s.RecvMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
@@ -357,12 +355,10 @@ func NewServerBiStream[RECEIVE proto.Message, IN, OUT any](
 	var receive RECEIVE
 	s := &ServerBiStream[IN, OUT]{
 		server: server[IN, OUT, endpoint.BiStream[IN, OUT]]{
-			e:   e,
-			dec: dec,
-			enc: enc,
-			reflectReceive: reflect.New(
-				reflect.TypeOf(receive).Elem(),
-			),
+			e:       e,
+			dec:     dec,
+			enc:     enc,
+			receive: reflect.TypeOf(receive).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -415,7 +411,7 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	group.Go(func() error {
 		defer close(inCh)
 		for {
-			msg := srv.reflectReceive.Interface().(proto.Message)
+			msg := reflect.New(srv.receive).Interface().(proto.Message)
 			err := s.RecvMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
@@ -489,5 +485,5 @@ type server[IN, OUT any, E endpoint.Endpoint[IN, OUT]] struct {
 
 	opts serverOptions
 
-	reflectReceive reflect.Value
+	receive reflect.Type
 }
