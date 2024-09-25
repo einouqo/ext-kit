@@ -18,6 +18,7 @@ import (
 
 	"github.com/einouqo/ext-kit/endpoint"
 	"github.com/einouqo/ext-kit/test/transport/_service"
+	"github.com/einouqo/ext-kit/test/transport/_util"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
@@ -498,5 +499,90 @@ func TestStreamWS_heartbeat_both(t *testing.T) {
 			}
 			time.Sleep(time.Millisecond)
 		}
+	}
+}
+
+func TestStreamWS_multi_clients(t *testing.T) {
+	if !_util.Race {
+		t.Fatal("requires -race flag")
+	}
+
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
+
+	tidy, err := prepareServer(
+		address,
+		ws.WithServerFinalizer(func(ctx context.Context, code int, r *http.Request) {
+			srvDone.Store(true)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("server error: %+v", err)
+	}
+	defer tidy()
+
+	const n = 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			cliDone := atomic.Value{}
+			cliDone.Store(false)
+
+			client := prepareClient(
+				address,
+				ws.WithClientFinalizer(func(ctx context.Context, err error) {
+					cliDone.Store(true)
+				}),
+			)
+
+			ctx := context.Background()
+
+			sendCh := make(chan service.EchoRequest)
+			go func() {
+				defer close(sendCh)
+				for j := 0; j < 100; j++ {
+					req := service.EchoRequest{
+						Message: fmt.Sprintf("Client %d Msg %d", id, j),
+					}
+					sendCh <- req
+				}
+			}()
+
+			receive, err := client.Stream(ctx, sendCh)
+			if err != nil {
+				t.Errorf("client %d error: %+v", id, err)
+				return
+			}
+
+			for {
+				msg, err := receive()
+				if errors.Is(err, endpoint.StreamDone) {
+					break
+				}
+				if err != nil {
+					t.Errorf("client %d receive error: %+v", id, err)
+					return
+				}
+				if len(msg.Messages) != 1 {
+					t.Errorf("client %d expected 1 message, got %d", id, len(msg.Messages))
+					return
+				}
+				_ = msg.Messages[0]
+			}
+
+			if !cliDone.Load().(bool) {
+				t.Errorf("client %d did not finish", id)
+			}
+
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !srvDone.Load().(bool) {
+		t.Fatal("server did not finish")
 	}
 }

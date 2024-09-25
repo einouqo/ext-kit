@@ -20,12 +20,12 @@ import (
 )
 
 const (
-	addressTestServer string = ":8802"
+	testAddressServer string = ":8802"
 )
 
 func TestUnaryGRPC_before_after(t *testing.T) {
 	sTidy, err := prepareServer(
-		addressTestServer,
+		testAddressServer,
 		kitgrpc.WithServerBefore(populateTestValueFromMD),
 		kitgrpc.WithServerAfter(populateTestHeaderTrailer),
 	)
@@ -33,7 +33,7 @@ func TestUnaryGRPC_before_after(t *testing.T) {
 		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer sTidy()
-	client, cTidy, err := prepareClientPB(addressTestServer)
+	client, cTidy, err := prepareClientPB(testAddressServer)
 	if err != nil {
 		t.Fatalf("unable to prepare test: %+v", err)
 	}
@@ -77,7 +77,7 @@ func TestUnaryGRPC_before_after(t *testing.T) {
 
 func TestInnerStreamGRPC_before_after(t *testing.T) {
 	sTidy, err := prepareServer(
-		addressTestServer,
+		testAddressServer,
 		kitgrpc.WithServerBefore(populateTestValueFromMD),
 		kitgrpc.WithServerAfter(populateTestHeaderTrailer),
 	)
@@ -85,7 +85,7 @@ func TestInnerStreamGRPC_before_after(t *testing.T) {
 		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer sTidy()
-	client, cTidy, err := prepareClientPB(addressTestServer)
+	client, cTidy, err := prepareClientPB(testAddressServer)
 	if err != nil {
 		t.Fatalf("unable to prepare test: %+v", err)
 	}
@@ -152,7 +152,7 @@ func TestInnerStreamGRPC_before_after(t *testing.T) {
 
 func TestOuterStreamGRPC_before_after(t *testing.T) {
 	sTidy, err := prepareServer(
-		addressTestServer,
+		testAddressServer,
 		kitgrpc.WithServerBefore(populateTestValueFromMD),
 		kitgrpc.WithServerAfter(populateTestHeaderTrailer),
 	)
@@ -160,7 +160,7 @@ func TestOuterStreamGRPC_before_after(t *testing.T) {
 		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer sTidy()
-	client, cTidy, err := prepareClientPB(addressTestServer)
+	client, cTidy, err := prepareClientPB(testAddressServer)
 	if err != nil {
 		t.Fatalf("unable to prepare test: %+v", err)
 	}
@@ -227,7 +227,7 @@ func TestOuterStreamGRPC_before_after(t *testing.T) {
 
 func TestServerBiStreamGRPC_before_after(t *testing.T) {
 	sTidy, err := prepareServer(
-		addressTestServer,
+		testAddressServer,
 		kitgrpc.WithServerBefore(populateTestValueFromMD),
 		kitgrpc.WithServerAfter(populateTestHeaderTrailer),
 	)
@@ -235,7 +235,7 @@ func TestServerBiStreamGRPC_before_after(t *testing.T) {
 		t.Fatalf("unable to prepare server: %+v", err)
 	}
 	defer sTidy()
-	client, cTidy, err := prepareClientPB(addressTestServer)
+	client, cTidy, err := prepareClientPB(testAddressServer)
 	if err != nil {
 		t.Fatalf("unable to prepare test: %+v", err)
 	}
