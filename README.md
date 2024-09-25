@@ -17,7 +17,7 @@ Recognizing the need for these features, there emerged an opportunity to enhance
 - **Streaming friendly endpoint abstractions** that supports both gRPC and WebSocket transport.
 - **gRPC Streams**: Built to support robust client-side, server-side and bi-side streaming.
 - **WebSocket**: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
-- Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](/xrequestid/handler.go) for requests tagging, [Chain](/util/middleware.go) for middlewares e.g.) to expedite your Go application development.
+- Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](xrequestid/README.md) for requests tagging, [Chain](util/middleware.go) for middlewares e.g.) to expedite your Go application development.
 
 ## Installation
 
