@@ -8,13 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fasthttp/websocket"
-	"golang.org/x/exp/slices"
 
 	"github.com/einouqo/ext-kit/endpoint"
 	"github.com/einouqo/ext-kit/test/transport/_service"
