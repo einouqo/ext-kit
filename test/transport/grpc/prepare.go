@@ -12,21 +12,6 @@ import (
 	kitgrpc "github.com/einouqo/ext-kit/transport/grpc"
 )
 
-func prepareTestGRPC(address string) (client *ClientBinding, tidy func(), err error) {
-	srvTidy, err := prepareServer(address)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to prepare server: %+v", err)
-	}
-	client, cTidy, err := prepareClient(address)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to prepare client: %+v", err)
-	}
-	return client, func() {
-		cTidy()
-		srvTidy()
-	}, nil
-}
-
 func prepareClientPB(address string) (client pb.EchoClient, tidy func(), err error) {
 	cc, err := grpc.Dial(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {

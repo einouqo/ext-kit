@@ -7,11 +7,13 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+const httpStatus499 = 499
+
 func Status2Code(status int) codes.Code {
 	switch status {
 	case http.StatusOK:
 		return codes.OK
-	case 499:
+	case httpStatus499:
 		return codes.Canceled
 	case http.StatusBadRequest:
 		return codes.InvalidArgument

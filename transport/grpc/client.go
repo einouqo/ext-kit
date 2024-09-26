@@ -32,9 +32,7 @@ func NewClientUnary[REPLY proto.Message, OUT, IN any](
 			method: fullMethod,
 			enc:    enc,
 			dec:    dec,
-			reflectReply: reflect.New(
-				reflect.TypeOf(reply).Elem(),
-			),
+			reply:  reflect.TypeOf(reply).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -79,7 +77,7 @@ func (c *ClientUnary[OUT, IN]) Endpoint() endpoint.Unary[OUT, IN] {
 			grpc.Header(&header),
 			grpc.Trailer(&trailer),
 		)
-		reply := c.reflectReply.Interface()
+		reply := reflect.New(c.reply).Interface()
 		if err := c.conn.Invoke(ctx, c.method, req, reply, opts...); err != nil {
 			return in, err
 		}
@@ -114,9 +112,7 @@ func NewClientInnerStream[REPLY proto.Message, OUT, IN any](
 			method: fullMethod,
 			enc:    enc,
 			dec:    dec,
-			reflectReply: reflect.New(
-				reflect.TypeOf(reply).Elem(),
-			),
+			reply:  reflect.TypeOf(reply).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -179,7 +175,7 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 			}
 			defer close(inCh)
 			for {
-				msg := c.reflectReply.Interface().(proto.Message)
+				msg := reflect.New(c.reply).Interface().(proto.Message)
 				err = stream.RecvMsg(msg)
 				switch {
 				case errors.Is(err, io.EOF):
@@ -235,9 +231,7 @@ func NewClientOuterStream[REPLY proto.Message, OUT, IN any](
 			method: fullMethod,
 			enc:    enc,
 			dec:    dec,
-			reflectReply: reflect.New(
-				reflect.TypeOf(reply).Elem(),
-			),
+			reply:  reflect.TypeOf(reply).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -307,7 +301,7 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 		group.Go(func() error {
 			defer close(inCh)
 			defer cancel()
-			msg := c.reflectReply.Interface().(proto.Message)
+			msg := reflect.New(c.reply).Interface().(proto.Message)
 			err := stream.RecvMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
@@ -351,9 +345,7 @@ func NewClientBiStream[REPLY proto.Message, OUT, IN any](
 			method: fullMethod,
 			enc:    enc,
 			dec:    dec,
-			reflectReply: reflect.New(
-				reflect.TypeOf(reply).Elem(),
-			),
+			reply:  reflect.TypeOf(reply).Elem(),
 		},
 	}
 	for _, opt := range opts {
@@ -414,7 +406,7 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			}
 			defer close(inCh)
 			for {
-				msg := c.reflectReply.Interface().(proto.Message)
+				msg := reflect.New(c.reply).Interface().(proto.Message)
 				err := stream.RecvMsg(msg)
 				switch {
 				case errors.Is(err, io.EOF):
@@ -472,5 +464,5 @@ type client[OUT, IN any] struct {
 
 	opts clientOptions
 
-	reflectReply reflect.Value
+	reply reflect.Type
 }

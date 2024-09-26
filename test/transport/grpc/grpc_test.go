@@ -7,30 +7,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"golang.org/x/exp/slices"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	"github.com/einouqo/ext-kit/endpoint"
 	"github.com/einouqo/ext-kit/test/transport/_service"
+	"github.com/einouqo/ext-kit/test/transport/_util"
 	"github.com/einouqo/ext-kit/transport/grpc"
 )
 
 const (
-	addressTestGRPC string = ":8801"
+	testAddressGRPC string = ":8801"
 )
 
 func TestUnaryGRPC_ok(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerErrorHandler(errNoErrHandler{t}),
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
@@ -44,7 +45,7 @@ func TestUnaryGRPC_ok(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -79,7 +80,7 @@ func TestUnaryGRPC_error(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -92,7 +93,7 @@ func TestUnaryGRPC_error(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -120,11 +121,71 @@ func TestUnaryGRPC_error(t *testing.T) {
 	}
 }
 
+func TestUnaryGRPC_multi_clients(t *testing.T) {
+	if !_util.Race {
+		t.Fatal("failed: requires -race")
+	}
+
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
+
+	srvTidy, err := prepareServer(testAddressGRPC, grpc.WithServerFinalizer(func(ctx context.Context, err error) {
+		srvDone.Store(true)
+	}))
+	if err != nil {
+		t.Fatalf("server error: %+v", err)
+	}
+	defer srvTidy()
+
+	const n = 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			cliDone := atomic.Value{}
+			cliDone.Store(false)
+
+			client, tidy, err := prepareClient(testAddressGRPC, grpc.WithClientFinalizer(func(ctx context.Context, err error) {
+				cliDone.Store(true)
+			}))
+			if err != nil {
+				t.Errorf("client %d error: %+v", id, err)
+				return
+			}
+			defer tidy()
+
+			ctx := context.Background()
+
+			for j := 0; j < 100; j++ {
+				req := service.EchoRequest{Message: fmt.Sprintf("Client %d Msg %d", id, j)}
+				resp, err := client.Unary(ctx, req)
+				if err != nil {
+					t.Errorf("client %d call error: %+v", id, err)
+					return
+				}
+				_ = resp.Messages[0]
+			}
+
+			if !cliDone.Load().(bool) {
+				t.Errorf("client %d incomplete", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !srvDone.Load().(bool) {
+		t.Fatal("server incomplete")
+	}
+}
+
 func TestInnerStreamGRPC_ok(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerErrorHandler(errNoErrHandler{t}),
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
@@ -138,7 +199,7 @@ func TestInnerStreamGRPC_ok(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -195,7 +256,7 @@ func TestInnerStreamGRPC_error(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -208,7 +269,7 @@ func TestInnerStreamGRPC_error(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -260,7 +321,7 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -273,7 +334,7 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -342,11 +403,81 @@ func TestInnerStreamGRPC_cancel(t *testing.T) {
 	}
 }
 
+func TestInnerStreamGRPC_multi_clients(t *testing.T) {
+	if !_util.Race {
+		t.Fatal("failed: requires -race")
+	}
+
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
+
+	srvTidy, err := prepareServer(testAddressGRPC, grpc.WithServerFinalizer(func(ctx context.Context, err error) {
+		srvDone.Store(true)
+	}))
+	if err != nil {
+		t.Fatalf("server error: %+v", err)
+	}
+	defer srvTidy()
+
+	const n = 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			cliDone := atomic.Value{}
+			cliDone.Store(false)
+
+			client, tidy, err := prepareClient(testAddressGRPC, grpc.WithClientFinalizer(func(ctx context.Context, err error) {
+				cliDone.Store(true)
+			}))
+			if err != nil {
+				t.Errorf("client %d error: %+v", id, err)
+				return
+			}
+			defer tidy()
+
+			ctx := context.Background()
+
+			req := service.EchoRequest{Message: fmt.Sprintf("Client %d", id), Repeat: 100}
+
+			receive, err := client.InnerStream(ctx, req)
+			if err != nil {
+				t.Errorf("client %d request error: %+v", id, err)
+				return
+			}
+
+			for {
+				resp, err := receive()
+				if errors.Is(err, endpoint.StreamDone) {
+					break
+				}
+				if err != nil {
+					t.Errorf("client %d receive error: %+v", id, err)
+					return
+				}
+				_ = resp.Messages[0]
+			}
+
+			if !cliDone.Load().(bool) {
+				t.Errorf("client %d incomplete", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !srvDone.Load().(bool) {
+		t.Fatal("server incomplete")
+	}
+}
+
 func TestOuterStreamGRPC_ok(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -359,7 +490,7 @@ func TestOuterStreamGRPC_ok(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -406,7 +537,7 @@ func TestOuterStreamGRPC_error(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -419,7 +550,7 @@ func TestOuterStreamGRPC_error(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -472,7 +603,7 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -485,7 +616,7 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -544,11 +675,77 @@ func TestOuterStreamGRPC_cancel(t *testing.T) {
 	}
 }
 
+func TestOuterStreamGRPC_multi_clients(t *testing.T) {
+	if !_util.Race {
+		t.Fatal("failed: requires -race")
+	}
+
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
+
+	srvTidy, err := prepareServer(testAddressGRPC, grpc.WithServerFinalizer(func(ctx context.Context, err error) {
+		srvDone.Store(true)
+	}))
+	if err != nil {
+		t.Fatalf("server error: %+v", err)
+	}
+	defer srvTidy()
+
+	const n = 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			cliDone := atomic.Value{}
+			cliDone.Store(false)
+
+			client, tidy, err := prepareClient(testAddressGRPC, grpc.WithClientFinalizer(func(ctx context.Context, err error) {
+				cliDone.Store(true)
+			}))
+			if err != nil {
+				t.Errorf("client %d error: %+v", id, err)
+				return
+			}
+			defer tidy()
+
+			ctx := context.Background()
+
+			sendCh := make(chan service.EchoRequest)
+			go func() {
+				defer close(sendCh)
+				for j := 0; j < 100; j++ {
+					sendCh <- service.EchoRequest{Message: fmt.Sprintf("Client %d Msg %d", id, j)}
+				}
+			}()
+
+			resp, err := client.OuterStream(ctx, sendCh)
+			if err != nil {
+				t.Errorf("client %d call error: %+v", id, err)
+				return
+			}
+
+			_ = resp.Messages
+
+			if !cliDone.Load().(bool) {
+				t.Errorf("client %d incomplete", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !srvDone.Load().(bool) {
+		t.Fatal("server incomplete")
+	}
+}
+
 func TestBiStreamGRPC_ok(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -561,7 +758,7 @@ func TestBiStreamGRPC_ok(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -646,7 +843,7 @@ func TestBiStreamGRPC_error(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -659,7 +856,7 @@ func TestBiStreamGRPC_error(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -752,7 +949,7 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 	srvDone := atomic.Value{}
 	srvDone.Store(false)
 	srvTidy, err := prepareServer(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithServerFinalizer(func(ctx context.Context, err error) {
 			srvDone.Store(true)
 		}),
@@ -765,7 +962,7 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 	cliDone := atomic.Value{}
 	cliDone.Store(false)
 	client, cTidy, err := prepareClient(
-		addressTestGRPC,
+		testAddressGRPC,
 		grpc.WithClientFinalizer(func(ctx context.Context, err error) {
 			cliDone.Store(true)
 		}),
@@ -842,6 +1039,86 @@ func TestBiStreamGRPC_cancel(t *testing.T) {
 			t.Fatalf("message: want exactly 1 message, have %d", len(msg.Messages))
 		}
 		i++
+	}
+}
+
+func TestBiStreamGRPC_multi_clients(t *testing.T) {
+	if !_util.Race {
+		t.Fatal("failed: requires -race")
+	}
+
+	srvDone := atomic.Value{}
+	srvDone.Store(false)
+
+	srvTidy, err := prepareServer(testAddressGRPC, grpc.WithServerFinalizer(func(ctx context.Context, err error) {
+		srvDone.Store(true)
+	}))
+	if err != nil {
+		t.Fatalf("server error: %+v", err)
+	}
+	defer srvTidy()
+
+	const n = 100
+	wg := sync.WaitGroup{}
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			cliDone := atomic.Value{}
+			cliDone.Store(false)
+
+			client, tidy, err := prepareClient(testAddressGRPC, grpc.WithClientFinalizer(func(ctx context.Context, err error) {
+				cliDone.Store(true)
+			}))
+			if err != nil {
+				t.Errorf("client %d error: %+v", id, err)
+				return
+			}
+			defer tidy()
+
+			ctx := context.Background()
+
+			sendCh := make(chan service.EchoRequest)
+			go func() {
+				defer close(sendCh)
+				for j := 0; j < 100; j++ {
+					sendCh <- service.EchoRequest{Message: fmt.Sprintf("Client %d Msg %d", id, j)}
+				}
+			}()
+
+			receive, err := client.BiStream(ctx, sendCh)
+			if err != nil {
+				t.Errorf("client %d call error: %+v", id, err)
+				return
+			}
+
+			for {
+				resp, err := receive()
+				if errors.Is(err, endpoint.StreamDone) {
+					break
+				}
+				if err != nil {
+					t.Errorf("client %d receive error: %+v", id, err)
+					return
+				}
+				if len(resp.Messages) != 1 {
+					t.Errorf("client %d expected 1 message, got %d", id, len(resp.Messages))
+					return
+				}
+				_ = resp.Messages[0]
+			}
+
+			if !cliDone.Load().(bool) {
+				t.Errorf("client %d incomplete", id)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if !srvDone.Load().(bool) {
+		t.Fatal("server incomplete")
 	}
 }
 
