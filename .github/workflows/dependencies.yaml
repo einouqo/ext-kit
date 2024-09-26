@@ -9,16 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: setup golang
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
       - name: clear go mod cache
         run: sudo rm -rf $GOMODCACHE
       - name: connect go mod cache
         id: cache-gomod
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: /tmp/go/pkg/mod
           key: ${{ runner.os }}-golang-${{ hashFiles('**/go.sum') }}
