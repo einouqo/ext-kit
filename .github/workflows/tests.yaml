@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: prepare
         uses: ./.github/actions/prepare
       - name: run tests
@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: prepare
         uses: ./.github/actions/prepare
       - name: run tests
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: prepare
         uses: ./.github/actions/prepare
       - name: make report directory
@@ -45,7 +45,7 @@ jobs:
             crossbario/autobahn-testsuite \
             wstest -m fuzzingclient -s /config/fuzzingclient.json
       - name: upload report
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ws-autobahn-report
           path: ./test/transport/autobahn/reports
