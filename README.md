@@ -1,6 +1,6 @@
 # Go ext kit
 
-![Go Version](https://img.shields.io/badge/go-1.18+-blue.svg)
+![Go Version](https://img.shields.io/badge/go-1.22+-blue.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/einouqo/ext-kit)](https://goreportcard.com/report/github.com/einouqo/ext-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -17,7 +17,7 @@ Recognizing the need for these features, there emerged an opportunity to enhance
 - **Streaming friendly endpoint abstractions** that supports both gRPC and WebSocket transport.
 - **gRPC Streams**: Built to support robust client-side, server-side and bi-side streaming.
 - **WebSocket**: A robust, performant WebSocket transport layer designed for real-time communication whose usage is close to gRPC bi-side streaming.
-- Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](xrequestid/README.md) for requests tagging, [Chain](util/middleware.go) for middlewares e.g.) to expedite your Go application development.
+- Utilitarian Functions & Types: Additional functional utilities and types (such as [X-Request-ID](xrequestid) for requests tagging, [Chain](util/middleware.go) for middlewares e.g.) to expedite your Go application development.
 
 ## Installation
 
