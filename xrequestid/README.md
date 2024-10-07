@@ -6,7 +6,7 @@ Here is a few examples of usage:
 #### gRPC
 
 ```go
-server = grpc.NewServer(
+server := grpc.NewServer(
     grpc.InTapHandle(xrequestid.New().InTapHandler),
 )
 ```
@@ -14,7 +14,7 @@ server = grpc.NewServer(
 if you don't want to use `InTapHandle` you can use `UnaryInterceptor`:
 
 ```go
-server = grpc.NewServer(
+server := grpc.NewServer(
     grpc.UnaryInterceptor(xrequestid.New().UnaryInterceptor),
 ) 
 ```
