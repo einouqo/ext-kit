@@ -31,25 +31,25 @@ func WithClientFinalizer(finalizer kithttp.ClientFinalizerFunc) ClientOption {
 
 func WithClientErrorHandler(handler transport.ErrorHandler) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.errHandlers = append(o.errHandlers, handler)
+		o.errorHandlers = append(o.errorHandlers, handler)
 	}}
 }
 
 func WithClientWriteTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.config.write.timeout = timeout
+		o.connection.config.write.timeout = timeout
 	}}
 }
 
 func WithClientWriteMod(mod WriteMod) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.config.write.mod = mod
+		o.connection.config.write.mod = mod
 	}}
 }
 
 func WithClientReadTimeout(timeout time.Duration) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.enhancement.config.read.timeout = timeout
+		o.connection.config.read.timeout = timeout
 	}}
 }
 
@@ -88,25 +88,25 @@ func WithServerFinalizer(finalizer kithttp.ServerFinalizerFunc) ServerOption {
 
 func WithServerErrorHandler(handler transport.ErrorHandler) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.errHandlers = append(o.errHandlers, handler)
+		o.errorHandlers = append(o.errorHandlers, handler)
 	}}
 }
 
 func WithServerReadTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.config.read.timeout = timeout
+		o.connection.config.read.timeout = timeout
 	}}
 }
 
 func WithServerWriteTimeout(timeout time.Duration) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.config.write.timeout = timeout
+		o.connection.config.write.timeout = timeout
 	}}
 }
 
 func WithServerWriteMod(mod WriteMod) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.enhancement.config.write.mod = mod
+		o.connection.config.write.mod = mod
 	}}
 }
 

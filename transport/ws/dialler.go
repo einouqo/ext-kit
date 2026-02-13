@@ -11,70 +11,40 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
-//nolint:interfacebloat
+type Dial = func(network, addr string) (net.Conn, error)
+type DialContext = func(ctx context.Context, network, addr string) (net.Conn, error)
+type Proxy = func(*http.Request) (*url.URL, error)
+
 type Dialler interface {
-	SetNetDial(dial func(network, addr string) (net.Conn, error))
-	SetNetDialContext(func(ctx context.Context, network, addr string) (net.Conn, error))
-	SetNetDialTLSContext(func(ctx context.Context, network, addr string) (net.Conn, error))
-	SetProxy(func(*http.Request) (*url.URL, error))
+	SetNetDial(Dial)
+	SetNetDialContext(DialContext)
+	SetNetDialTLSContext(DialContext)
+	SetProxy(Proxy)
 	SetTLSClientConfig(*tls.Config)
 	SetHandshakeTimeout(time.Duration)
 	SetReadBufferSize(int)
 	SetWriteBufferSize(int)
-	SetWriteBufferPool(websocket.BufferPool)
+	SetWriteBufferPool(BufferPool)
 	SetSubprotocols([]string)
 	SetEnableCompression(bool)
 	SetJar(http.CookieJar)
 }
 
 type dialler struct {
-	*websocket.Dialer
+	ws *websocket.Dialer
 }
 
-func (d dialler) SetNetDial(dial func(network, addr string) (net.Conn, error)) {
-	d.NetDial = dial
-}
+var _ Dialler = (*dialler)(nil)
 
-func (d dialler) SetNetDialContext(dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
-	d.NetDialContext = dial
-}
-
-func (d dialler) SetNetDialTLSContext(dial func(ctx context.Context, network, addr string) (net.Conn, error)) {
-	d.NetDialTLSContext = dial
-}
-
-func (d dialler) SetProxy(proxy func(*http.Request) (*url.URL, error)) {
-	d.Proxy = proxy
-}
-
-func (d dialler) SetTLSClientConfig(cfg *tls.Config) {
-	d.TLSClientConfig = cfg
-}
-
-func (d dialler) SetHandshakeTimeout(timeout time.Duration) {
-	d.HandshakeTimeout = timeout
-}
-
-func (d dialler) SetReadBufferSize(size int) {
-	d.ReadBufferSize = size
-}
-
-func (d dialler) SetWriteBufferSize(size int) {
-	d.WriteBufferSize = size
-}
-
-func (d dialler) SetWriteBufferPool(pool websocket.BufferPool) {
-	d.WriteBufferPool = pool
-}
-
-func (d dialler) SetSubprotocols(protocols []string) {
-	d.Subprotocols = protocols
-}
-
-func (d dialler) SetEnableCompression(enable bool) {
-	d.EnableCompression = enable
-}
-
-func (d dialler) SetJar(jar http.CookieJar) {
-	d.Jar = jar
-}
+func (d *dialler) SetNetDial(dial Dial)                      { d.ws.NetDial = dial }
+func (d *dialler) SetNetDialContext(dial DialContext)        { d.ws.NetDialContext = dial }
+func (d *dialler) SetNetDialTLSContext(dial DialContext)     { d.ws.NetDialTLSContext = dial }
+func (d *dialler) SetProxy(proxy Proxy)                      { d.ws.Proxy = proxy }
+func (d *dialler) SetTLSClientConfig(cfg *tls.Config)        { d.ws.TLSClientConfig = cfg }
+func (d *dialler) SetHandshakeTimeout(timeout time.Duration) { d.ws.HandshakeTimeout = timeout }
+func (d *dialler) SetReadBufferSize(size int)                { d.ws.ReadBufferSize = size }
+func (d *dialler) SetWriteBufferSize(size int)               { d.ws.WriteBufferSize = size }
+func (d *dialler) SetWriteBufferPool(pool BufferPool)        { d.ws.WriteBufferPool = pool }
+func (d *dialler) SetSubprotocols(protocols []string)        { d.ws.Subprotocols = protocols }
+func (d *dialler) SetEnableCompression(enable bool)          { d.ws.EnableCompression = enable }
+func (d *dialler) SetJar(jar http.CookieJar)                 { d.ws.Jar = jar }

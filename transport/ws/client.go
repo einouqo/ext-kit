@@ -8,9 +8,10 @@ import (
 	"net/url"
 	"sync"
 	"syscall"
+	"time"
 
+	"github.com/einouqo/ext-kit/transport"
 	"github.com/fasthttp/websocket"
-	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
 	"golang.org/x/sync/errgroup"
 
@@ -49,38 +50,46 @@ func NewClient[OUT, IN any](
 func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 	return func(ctx context.Context, receiver <-chan OUT) (rcv endpoint.Receive[IN], err error) {
 		headers := make(http.Header)
-		dialer := dialler{websocket.DefaultDialer}
+		dialer := &dialler{
+			ws: &websocket.Dialer{
+				Proxy:            http.ProxyFromEnvironment,
+				HandshakeTimeout: 45 * time.Second,
+			},
+		}
 		for _, f := range c.opts.before {
 			ctx = f(ctx, dialer, headers)
 		}
 
-		wsc, resp, err := dialer.DialContext(ctx, c.url.String(), headers)
+		wsc, resp, err := dialer.ws.DialContext(ctx, c.url.String(), headers)
 		if err != nil {
 			return nil, err
 		}
-		defer func() {
-			if err != nil {
-				_ = wsc.Close()
-			}
-		}()
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
-		for _, f := range c.opts.after {
-			ctx = f(ctx, resp, wsc)
+		conn := &conn{
+			ws:     wsc,
+			config: c.opts.connection.config,
 		}
 
-		conn := enhConn{wsc, c.opts.enhancement.config}
+		for _, f := range c.opts.after {
+			ctx = f(ctx, resp, conn)
+		}
+
+		ctx, cancel := context.WithCancel(ctx)
 
 		once := sync.Once{}
-		doneCh := make(chan struct{})
-		group := errgroup.Group{}
-		group.Go(func() (err error) {
-			defer close(doneCh)
-			defer once.Do(func() {
+		leave := func(err error) {
+			once.Do(func() {
 				code, msg, deadline := c.closure(ctx, err)
 				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
 				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
 			})
+		}
+
+		group := errgroup.Group{}
+		group.Go(func() (err error) {
+			defer func() { leave(err) }()
+			defer cancel()
 			for {
 				select {
 				case <-ctx.Done():
@@ -95,11 +104,10 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 					}
 					err = conn.WriteMessage(mt.fastsocket(), msg)
 					switch {
-					case errors.Is(err, net.ErrClosed):
-						return nil
-					case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
-						return nil
-					case errors.Is(err, websocket.ErrCloseSent):
+					case
+						errors.Is(err, net.ErrClosed),
+						errors.Is(err, syscall.EPIPE), // broken pipe can appear on closed underlying TCP connection by peer
+						errors.Is(err, websocket.ErrCloseSent):
 						return nil
 					case err != nil:
 						return err
@@ -107,7 +115,7 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				}
 			}
 		})
-		inCh := make(chan IN)
+		ins := make(chan IN)
 		group.Go(func() (err error) {
 			if c.opts.finalizer != nil {
 				defer func() {
@@ -116,13 +124,8 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 					}
 				}()
 			}
-			defer close(inCh)
-			defer conn.Close()
-			defer once.Do(func() {
-				code, msg, deadline := c.closure(ctx, err)
-				data := websocket.FormatCloseMessage(code.fastsocket(), msg)
-				_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
-			})
+			defer func() { leave(err) }()
+			defer close(ins)
 			for {
 				messageType, msg, err := conn.ReadMessage()
 				switch {
@@ -136,34 +139,43 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				if err != nil {
 					return err
 				}
-				inCh <- in
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+					// context is not done, continue
+				}
+				select {
+				case <-ctx.Done():
+					return nil
+				case ins <- in:
+				}
 			}
 		})
 
 		if c.opts.heartbeat.enable {
-			group.Go(func() error {
-				defer conn.Close()
-				return heartbeat(ctx, c.opts.heartbeat.config, conn, doneCh)
+			group.Go(func() (err error) {
+				defer func() { leave(err) }()
+				return heartbeat(ctx, c.opts.heartbeat.config, conn)
 			})
 		}
 
-		errCh := make(chan error)
+		errs := make(chan error)
 		go func() {
-			defer close(errCh)
+			defer func() { _ = conn.Close() }()
+			defer close(errs)
 			err := group.Wait()
 			if err != nil {
-				for _, h := range c.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
-				errCh <- err
+				c.opts.errorHandlers.Handle(ctx, err)
+				errs <- err
 			}
 		}()
 
 		return func() (in IN, err error) {
-			if in, ok := <-inCh; ok {
+			if in, ok := <-ins; ok {
 				return in, nil
 			}
-			if err, ok := <-errCh; ok {
+			if err, ok := <-errs; ok {
 				return in, err
 			}
 			return in, endpoint.StreamDone
@@ -172,17 +184,17 @@ func (c *Client[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 }
 
 type clientOptions struct {
-	before      []DiallerFunc
-	after       []ClientTunerFunc
-	finalizer   []kithttp.ClientFinalizerFunc
-	errHandlers []transport.ErrorHandler
+	before        []DiallerFunc
+	after         []ClientTunerFunc
+	finalizer     []kithttp.ClientFinalizerFunc
+	errorHandlers transport.ErrorHandlers
 
-	enhancement struct {
-		config enhConfig
+	connection struct {
+		config connConfig
 	}
 
 	heartbeat struct {
 		enable bool
-		config hbConfig
+		config heartbeatConfig
 	}
 }

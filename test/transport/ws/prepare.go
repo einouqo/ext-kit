@@ -1,3 +1,5 @@
+//go:build integration
+
 package ws
 
 import (
@@ -6,20 +8,9 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/einouqo/ext-kit/test/transport/_service"
+	service "github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
-
-func prepareTest(address string) (client *ClientBinding, tidy func(), err error) {
-	sTydy, err := prepareServer(address)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to prepare server: %+v", err)
-	}
-
-	client = prepareClient(address)
-
-	return client, sTydy, nil
-}
 
 func prepareClient(address string, opts ...ws.ClientOption) *ClientBinding {
 	return NewClientBinding(

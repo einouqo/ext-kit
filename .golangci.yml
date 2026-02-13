@@ -1,125 +1,19 @@
+version: "2"
+
 run:
   timeout: 5m
-  issues-exit-code: 1
-  tests: false
   modules-download-mode: readonly
   allow-parallel-runners: true
 
-output:
-  print-issued-lines: true
-  print-linter-name: true
-
 linters:
-  disable:
-    - depguard
-    - exhaustruct
-    - fatcontext
-    - gochecknoglobals
-    - goconst
-    - godot
-    - godox
-    - nonamedreturns
-    - nlreturn
-    - varnamelen
-    - inamedparam
-    - wsl
-    - wrapcheck
-  presets:
-    - bugs
-    - comment
-    - complexity
-    - error
-    - format
-    - import
-    - metalinter
-    - module
-    - performance
-    - style
-    - test
-    - unused
+  exclusions:
+    rules:
+      # an exception, as the error value is used to signal the end of the stream
+      - linters:
+          - staticcheck
+        source: "StreamDone"
+      # as documentation states: "... This method always returns a nil error" https://github.com/grpc/grpc-go/blob/v1.78.0/stream.go#L105-L108
+      - linters:
+          - errcheck
+        source: "defer .*\\.CloseSend()"
 
-linters-settings:
-  exhaustive:
-    ignore-enum-members: '^*(Unspecified|Undefined|Unknown|Idle)$'
-  cyclop:
-    max-complexity: 20
-  gomnd:
-    ignored-numbers:
-      - '2'
-      - '4'
-      - '8'
-      - '16'
-      - '32'
-      - '64'
-  gci:
-    sections:
-      - standard # Standard section: captures all standard packages.
-      - default # Default section: contains all imports that could not be matched to another section type.
-      - prefix(github.com/einouqo/ext-kit) # Custom section: groups all imports with the specified Prefix.
-      - blank # Blank section: contains all blank imports. This section is not present unless explicitly enabled.
-      - dot
-  tagliatelle:
-    case:
-      rules:
-        json: snake
-        yaml: snake
-
-issues:
-  exclude-dirs:
-    - test # no lints for tests
-  exclude-files:
-    - .*_test.go$ # unit tests
-    - transport/ws/intercepting_writer.go # code from http package of go-kit project (https://github.com/go-kit/kit/blob/master/transport/http/intercepting_writer.go).
-  exclude-rules:
-    - linters:
-        - wrapcheck
-      text: 'error returned from interface method should be wrapped'
-      source: ^*return .*
-    - linters:
-        - wrapcheck
-      text: ^error returned from external package is unwrapped[:] .*multierror.* error$
-    - linters:
-        - wrapcheck
-      source: .*status.Error\(.*, .*\).*
-    - linters:
-        - cyclop
-      text: 'calculated cyclomatic complexity for function'
-      source: ^func \(.*\) String\(\) string {$
-    - linters:
-        - gomnd
-      source: .*(time\..|[0-9]+<<[0-9]+)*$
-    - linters:
-        - gofumpt
-      source: ^var \(
-    - linters:
-        - unparam
-      # except setters with self returning
-      text: .*\)\.set([A-z0-9]+)? - result 0 \(\*.*\) is never used$
-    - linters:
-        - gosec
-      text: 'G109:'
-    - linters:
-        - gosec
-      text: 'G404:'
-    - linters:
-        - lll
-      source: .*// .*
-    - linters:
-        - stylecheck
-      text: 'ST1012:'
-    - linters:
-        - forbidigo
-      text: use of `fmt\..*` forbidden by pattern `.*`$
-    - path: transport # ok for transport
-      linters: [ gocognit, gocyclo, cyclop, forcetypeassert, funlen, ireturn, lll ]
-    - path: endpoint
-      linters: [ errname, revive ]
-    - linters:
-        - gocritic
-      text: 'appendAssign: append result not assigned to the same slice'
-    - linters:
-        - errcheck
-      source: ^\s*defer .*$
-    - linters:
-        - revive
-      text: 'if-return: redundant if ...;'
