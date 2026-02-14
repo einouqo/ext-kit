@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package grpc
 
@@ -18,7 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/transport/_service"
+	service "github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/test/transport/_util"
 	"github.com/einouqo/ext-kit/transport/grpc"
 )

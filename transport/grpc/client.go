@@ -6,7 +6,6 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/go-kit/kit/transport"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/einouqo/ext-kit/endpoint"
+	"github.com/einouqo/ext-kit/transport"
 )
 
 type ClientUnary[OUT, IN any] struct{ client[OUT, IN] }
@@ -43,12 +43,10 @@ func NewClientUnary[REPLY proto.Message, OUT, IN any](
 
 func (c *ClientUnary[OUT, IN]) Endpoint() endpoint.Unary[OUT, IN] {
 	return func(ctx context.Context, out OUT) (in IN, err error) {
-		if len(c.opts.errHandlers) > 0 {
+		if len(c.opts.errorHandlers) > 0 {
 			defer func() {
 				if err != nil {
-					for _, h := range c.opts.errHandlers {
-						h.Handle(ctx, err)
-					}
+					c.opts.errorHandlers.Handle(ctx, err)
 				}
 			}()
 		}
@@ -163,7 +161,7 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 			return nil, err
 		}
 
-		inCh := make(chan IN)
+		ins := make(chan IN)
 		group := errgroup.Group{}
 		group.Go(func() (err error) {
 			if c.opts.finalizer != nil {
@@ -173,7 +171,7 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 					}
 				}()
 			}
-			defer close(inCh)
+			defer close(ins)
 			for {
 				msg := reflect.New(c.reply).Interface().(proto.Message)
 				err = stream.RecvMsg(msg)
@@ -187,26 +185,24 @@ func (c *ClientInnerStream[OUT, IN]) Endpoint() endpoint.InnerStream[OUT, IN] {
 				if err != nil {
 					return err
 				}
-				inCh <- in
+				ins <- in
 			}
 		})
 
-		errCh := make(chan error)
+		errs := make(chan error)
 		go func() {
-			defer close(errCh)
+			defer close(errs)
 			if err := group.Wait(); err != nil {
-				for _, h := range c.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
-				errCh <- err
+				c.opts.errorHandlers.Handle(ctx, err)
+				errs <- err
 			}
 		}()
 
 		return func() (in IN, err error) {
-			if in, ok := <-inCh; ok {
+			if in, ok := <-ins; ok {
 				return in, nil
 			}
-			if err, ok := <-errCh; ok {
+			if err, ok := <-errs; ok {
 				return in, err
 			}
 			return in, endpoint.StreamDone
@@ -242,12 +238,10 @@ func NewClientOuterStream[REPLY proto.Message, OUT, IN any](
 
 func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 	return func(ctx context.Context, receiver <-chan OUT) (in IN, err error) {
-		if len(c.opts.errHandlers) > 0 {
+		if len(c.opts.errorHandlers) > 0 {
 			defer func() {
 				if err != nil {
-					for _, h := range c.opts.errHandlers {
-						h.Handle(ctx, err)
-					}
+					c.opts.errorHandlers.Handle(ctx, err)
 				}
 			}()
 		}
@@ -297,9 +291,9 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 			}
 			return nil
 		})
-		inCh := make(chan IN, 1)
+		ins := make(chan IN, 1)
 		group.Go(func() error {
-			defer close(inCh)
+			defer close(ins)
 			defer cancel()
 			msg := reflect.New(c.reply).Interface().(proto.Message)
 			err := stream.RecvMsg(msg)
@@ -313,7 +307,7 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 			if err != nil {
 				return err
 			}
-			inCh <- in
+			ins <- in
 			return nil
 		})
 		if err := group.Wait(); err != nil {
@@ -324,7 +318,7 @@ func (c *ClientOuterStream[OUT, IN]) Endpoint() endpoint.OuterStream[OUT, IN] {
 			ctx = f(ctx, header, trailer)
 		}
 
-		return <-inCh, nil
+		return <-ins, nil
 	}
 }
 
@@ -395,7 +389,7 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 			}
 			return nil
 		})
-		inCh := make(chan IN)
+		ins := make(chan IN)
 		group.Go(func() (err error) {
 			if c.opts.finalizer != nil {
 				defer func() {
@@ -404,7 +398,7 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 					}
 				}()
 			}
-			defer close(inCh)
+			defer close(ins)
 			for {
 				msg := reflect.New(c.reply).Interface().(proto.Message)
 				err := stream.RecvMsg(msg)
@@ -418,26 +412,24 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 				if err != nil {
 					return err
 				}
-				inCh <- in
+				ins <- in
 			}
 		})
 
-		errCh := make(chan error)
+		errs := make(chan error)
 		go func() {
-			defer close(errCh)
+			defer close(errs)
 			if err := group.Wait(); err != nil {
-				for _, h := range c.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
-				errCh <- err
+				c.opts.errorHandlers.Handle(ctx, err)
+				errs <- err
 			}
 		}()
 
 		return func() (in IN, err error) {
-			if in, ok := <-inCh; ok {
+			if in, ok := <-ins; ok {
 				return in, nil
 			}
-			if err, ok := <-errCh; ok {
+			if err, ok := <-errs; ok {
 				return in, err
 			}
 			return in, endpoint.StreamDone
@@ -448,10 +440,10 @@ func (c *ClientBiStream[OUT, IN]) Endpoint() endpoint.BiStream[OUT, IN] {
 type clientOptions struct {
 	callOpts []grpc.CallOption
 
-	before      []kitgrpc.ClientRequestFunc
-	after       []kitgrpc.ClientResponseFunc
-	finalizer   []kitgrpc.ClientFinalizerFunc
-	errHandlers []transport.ErrorHandler
+	before        []kitgrpc.ClientRequestFunc
+	after         []kitgrpc.ClientResponseFunc
+	finalizer     []kitgrpc.ClientFinalizerFunc
+	errorHandlers transport.ErrorHandlers
 }
 
 type client[OUT, IN any] struct {

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/einouqo/ext-kit/transport"
 	"github.com/fasthttp/websocket"
-	"github.com/go-kit/kit/transport"
 	kithttp "github.com/go-kit/kit/transport/http"
 	"golang.org/x/sync/errgroup"
 
@@ -61,15 +61,13 @@ func (s *Server[IN, OUT]) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	err := s.serve(ctx, w, r)
 	if err != nil {
-		for _, h := range s.opts.errHandlers {
-			h.Handle(ctx, err)
-		}
+		s.opts.errorHandlers.Handle(ctx, err)
 	}
 }
 
 func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *http.Request) (err error) {
 	headers := make(http.Header)
-	upg := upgrader{new(websocket.Upgrader)}
+	upg := new(upgrader)
 	for _, f := range s.opts.before {
 		ctx = f(ctx, upg, r, headers)
 	}
@@ -78,31 +76,38 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	if err != nil {
 		return err
 	}
-	defer wsc.Close()
+	conn := &conn{
+		ws:     wsc,
+		config: s.opts.connection.config,
+	}
+	defer func() { _ = conn.Close() }()
 
 	for _, f := range s.opts.after {
-		ctx = f(ctx, wsc)
+		ctx = f(ctx, conn)
 	}
 
-	conn := enhConn{wsc, s.opts.enhancement.config}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	inCh := make(chan IN)
-	receive, err := s.e(ctx, inCh)
+	ins := make(chan IN)
+	receive, err := s.e(ctx, ins)
 	if err != nil {
 		return err
 	}
 
 	once := sync.Once{}
-	doneCh := make(chan struct{})
-	group := errgroup.Group{}
-	group.Go(func() (err error) {
-		defer close(inCh)
-		defer conn.Close()
-		defer once.Do(func() {
+	leave := func(err error) {
+		once.Do(func() {
 			code, msg, deadline := s.closure(ctx, err)
 			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
 			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
 		})
+	}
+
+	group := errgroup.Group{}
+	group.Go(func() (err error) {
+		defer func() { leave(err) }()
+		defer close(ins)
 		for {
 			messageType, msg, err := conn.ReadMessage()
 			switch {
@@ -117,19 +122,21 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 				return err
 			}
 			select {
-			case <-doneCh:
+			case <-ctx.Done():
 				return nil
-			case inCh <- in:
+			default:
+				// context is not done, continue
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case ins <- in:
 			}
 		}
 	})
 	group.Go(func() (err error) {
-		defer close(doneCh)
-		defer once.Do(func() {
-			code, msg, deadline := s.closure(ctx, err)
-			data := websocket.FormatCloseMessage(code.fastsocket(), msg)
-			_ = conn.WriteControl(websocket.CloseMessage, data, deadline)
-		})
+		defer func() { leave(err) }()
+		defer cancel()
 		for {
 			out, err := receive()
 			switch {
@@ -144,11 +151,10 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 			}
 			err = conn.WriteMessage(mt.fastsocket(), msg)
 			switch {
-			case errors.Is(err, net.ErrClosed):
-				return nil
-			case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
-				return nil
-			case errors.Is(err, websocket.ErrCloseSent):
+			case
+				errors.Is(err, net.ErrClosed),
+				errors.Is(err, syscall.EPIPE), // broken pipe can appear on closed underlying TCP connection by peer
+				errors.Is(err, websocket.ErrCloseSent):
 				return nil
 			case err != nil:
 				return err
@@ -157,31 +163,27 @@ func (s *Server[IN, OUT]) serve(ctx context.Context, w http.ResponseWriter, r *h
 	})
 
 	if s.opts.heartbeat.enable {
-		group.Go(func() error {
-			defer conn.Close()
-			return heartbeat(ctx, s.opts.heartbeat.config, conn, doneCh)
+		group.Go(func() (err error) {
+			defer func() { leave(err) }()
+			return heartbeat(ctx, s.opts.heartbeat.config, conn)
 		})
 	}
 
-	if err := group.Wait(); err != nil {
-		return err
-	}
-
-	return nil
+	return group.Wait()
 }
 
 type serverOptions struct {
-	before      []UpgradeFunc
-	after       []ServerTunerFunc
-	finalizer   []kithttp.ServerFinalizerFunc
-	errHandlers []transport.ErrorHandler
+	before        []UpgradeFunc
+	after         []ServerTunerFunc
+	finalizer     []kithttp.ServerFinalizerFunc
+	errorHandlers transport.ErrorHandlers
 
-	enhancement struct {
-		config enhConfig
+	connection struct {
+		config connConfig
 	}
 
 	heartbeat struct {
 		enable bool
-		config hbConfig
+		config heartbeatConfig
 	}
 }

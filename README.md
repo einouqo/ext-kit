@@ -1,6 +1,6 @@
 # Go ext kit
 
-![Go Version](https://img.shields.io/badge/go-1.22+-blue.svg)
+![Go Version](https://img.shields.io/github/go-mod/go-version/einouqo/ext-kit)
 [![Go Report Card](https://goreportcard.com/badge/github.com/einouqo/ext-kit)](https://goreportcard.com/report/github.com/einouqo/ext-kit)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -32,40 +32,43 @@ go get github.com/einouqo/ext-kit
 You can refer to the [tests](test/transport/grpc) for more examples.
 
 **Server:**
+
 ```go
 type Service interface {
-	Bi(ctx context.Context, receiver <-chan string) (endpoint.Receive[string], error)
+ Bi(ctx context.Context, receiver <-chan string) (endpoint.Receive[string], error)
 }
 
 func NewServerBinding(svc Service, opts ...kitgrpc.ServerOption) *ServerBinding {
-	return &ServerBinding{
-		/* ... */
-		biStream: kitgrpc.NewServerBiStream[*pb.EchoRequest](
-			svc.Bi,
-			decodeRequest,
-			encodeResponse,
-			opts...,
-		),
-	}
+ return &ServerBinding{
+  /* ... */
+  biStream: kitgrpc.NewServerBiStream[*pb.EchoRequest](
+   svc.Bi,
+   decodeRequest,
+   encodeResponse,
+   opts...,
+  ),
+ }
 }
 ```
 
 **Client:**
+
 ```go
 func NewClientBinding(cc *grpc.ClientConn) *ClientBinding {
-	return &ClientBinding{
-		/* ... */
-		BiStream: kitgrpc.NewClientBiStream[*pb.EchoResponse](
-			cc,
-			pb.Echo_BiStream_FullMethodName,
-			encodeRequest,
-			decodeResponse,
-		).Endpoint(),
-	}
+ return &ClientBinding{
+  /* ... */
+  BiStream: kitgrpc.NewClientBiStream[*pb.EchoResponse](
+   cc,
+   pb.Echo_BiStream_FullMethodName,
+   encodeRequest,
+   decodeResponse,
+  ).Endpoint(),
+ }
 }
 ```
 
 Make a call:
+
 ```go
 send := make(chan service.EchoRequest) // send your requests to the channel in the way you want
 receive, err := client.BiStream(ctx, send)
@@ -85,6 +88,7 @@ for {
 ```
 
 #### WebSocket
+
 The usage is pretty close to gRPC Bi-Directional Streaming (the example above), but with WebSocket transport inside.
 
 You can also refer to the [tests](test/transport/ws) or [autobahn](test/transport/autobahn) implementation for more examples.

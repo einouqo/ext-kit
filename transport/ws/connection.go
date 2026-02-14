@@ -1,7 +1,6 @@
 package ws
 
 import (
-	"io"
 	"time"
 
 	"github.com/fasthttp/websocket"
@@ -14,39 +13,7 @@ const (
 	WriteModPrepared
 )
 
-type connection interface {
-	Tuner
-	rw
-	controller
-	closer
-}
-
-type Tuner interface {
-	EnableWriteCompression(enable bool)
-	SetCompressionLevel(level int) error
-	SetReadLimit(limit int64)
-}
-
-type rw interface {
-	SetReadDeadline(t time.Time) error
-	ReadMessage() (messageType int, p []byte, err error)
-	SetWriteDeadline(t time.Time) error
-	WriteMessage(messageType int, data []byte) error
-	WritePreparedMessage(pm *websocket.PreparedMessage) error
-	NextWriter(messageType int) (io.WriteCloser, error)
-}
-
-type controller interface {
-	WriteControl(messageType int, data []byte, deadline time.Time) error
-	PongHandler() func(string) error
-	SetPongHandler(h func(string) error)
-}
-
-type closer interface {
-	Close() error
-}
-
-type enhConfig struct {
+type connConfig struct {
 	read struct {
 		timeout time.Duration
 	}
@@ -57,64 +24,71 @@ type enhConfig struct {
 	}
 }
 
-type enhConn struct {
-	connection
-	cfg enhConfig
+type conn struct {
+	ws     *websocket.Conn
+	config connConfig
 }
 
-func (c enhConn) ReadMessage() (messageType int, p []byte, err error) {
-	if err := c.updateReadDeadline(c.connection); err != nil {
+var (
+	_ Tuner = (*conn)(nil)
+)
+
+func (c *conn) EnableWriteCompression(enable bool)  { c.ws.EnableWriteCompression(enable) }
+func (c *conn) SetCompressionLevel(level int) error { return c.ws.SetCompressionLevel(level) }
+func (c *conn) SetReadLimit(limit int64)            { c.ws.SetReadLimit(limit) }
+
+func (c *conn) PongHandler() func(string) error     { return c.ws.PongHandler() }
+func (c *conn) SetPongHandler(h func(string) error) { c.ws.SetPongHandler(h) }
+
+func (c *conn) ReadMessage() (messageType int, p []byte, err error) {
+	if err := c.updateReadDeadline(c.ws); err != nil {
 		return 0, nil, err
 	}
-	return c.connection.ReadMessage()
+	return c.ws.ReadMessage()
 }
 
-func (c enhConn) WriteMessage(messageType int, data []byte) error {
-	if err := c.updateWriteDeadline(c.connection); err != nil {
-		return err
-	}
-	switch c.cfg.write.mod {
-	case WriteModPlain:
-		return c.writePlain(messageType, data)
-	case WriteModPrepared:
-		return c.writePrepared(messageType, data)
-	default:
-		return c.connection.WriteMessage(messageType, data)
-	}
-}
-
-func (c enhConn) writePlain(messageType int, data []byte) error {
-	w, err := c.connection.NextWriter(messageType)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(data)
-	if err != nil {
-		return err
-	}
-	return w.Close()
-}
-
-func (c enhConn) writePrepared(messageType int, data []byte) error {
-	pm, err := websocket.NewPreparedMessage(messageType, data)
-	if err != nil {
-		return err
-	}
-	return c.connection.WritePreparedMessage(pm)
-}
-
-func (c enhConn) updateWriteDeadline(conn connection) error {
-	if c.cfg.write.timeout > 0 {
-		deadline := time.Now().Add(c.cfg.write.timeout)
+func (c *conn) updateWriteDeadline(conn *websocket.Conn) error {
+	if c.config.write.timeout > 0 {
+		deadline := time.Now().Add(c.config.write.timeout)
 		return conn.SetWriteDeadline(deadline)
 	}
 	return nil
 }
 
-func (c enhConn) updateReadDeadline(conn connection) error {
-	if c.cfg.read.timeout > 0 {
-		deadline := time.Now().Add(c.cfg.read.timeout)
+func (c *conn) WriteMessage(messageType int, data []byte) error {
+	if err := c.updateWriteDeadline(c.ws); err != nil {
+		return err
+	}
+	switch c.config.write.mod {
+	case WriteModPlain:
+		w, err := c.ws.NextWriter(messageType)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = w.Close() }()
+		_, err = w.Write(data)
+		return err
+	case WriteModPrepared:
+		pm, err := websocket.NewPreparedMessage(messageType, data)
+		if err != nil {
+			return err
+		}
+		return c.ws.WritePreparedMessage(pm)
+	default:
+		return c.ws.WriteMessage(messageType, data)
+	}
+}
+
+func (c *conn) updateReadDeadline(conn *websocket.Conn) error {
+	if c.config.read.timeout > 0 {
+		deadline := time.Now().Add(c.config.read.timeout)
 		return conn.SetReadDeadline(deadline)
 	}
 	return nil
 }
+
+func (c *conn) WriteControl(messageType int, data []byte, deadline time.Time) error {
+	return c.ws.WriteControl(messageType, data, deadline)
+}
+
+func (c *conn) Close() error { return c.ws.Close() }

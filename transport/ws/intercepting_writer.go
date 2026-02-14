@@ -1,6 +1,8 @@
 // Package ws is partially based on the http package from go-kit.
 // The code in this file is based on code from http package of go-kit project (https://github.com/go-kit/kit/blob/master/transport/http/intercepting_writer.go).
 // All rights of the code belong to the original author.
+//
+//nolint:all
 package ws
 
 import (

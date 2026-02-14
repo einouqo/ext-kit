@@ -10,23 +10,22 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
-type hbConfig struct {
+type heartbeatConfig struct {
 	period, await time.Duration
 	pinging       Pinging
 }
 
 func heartbeat(
 	ctx context.Context,
-	cfg hbConfig,
-	conn controller,
-	done <-chan struct{},
+	cfg heartbeatConfig,
+	conn *conn,
 ) error {
-	pongCh := make(chan struct{})
+	pong := make(chan struct{})
 	handler := conn.PongHandler()
 	conn.SetPongHandler(func(msg string) error {
 		select {
-		case pongCh <- struct{}{}:
-		case <-done:
+		case pong <- struct{}{}:
+		case <-ctx.Done():
 		}
 		return handler(msg)
 	})
@@ -35,28 +34,27 @@ func heartbeat(
 	defer ticker.Stop()
 	for {
 		select {
-		case <-done:
+		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
 			msg, deadline := cfg.pinging(ctx)
 			err := conn.WriteControl(websocket.PingMessage, msg, deadline)
 			switch {
-			case errors.Is(err, net.ErrClosed):
-				return nil
-			case errors.Is(err, syscall.EPIPE): // broken pipe can appear on closed underlying tcp connection by peer
-				return nil
-			case errors.Is(err, websocket.ErrCloseSent):
+			case
+				errors.Is(err, net.ErrClosed),
+				errors.Is(err, syscall.EPIPE), // broken pipe can appear on closed underlying TCP connection by peer
+				errors.Is(err, websocket.ErrCloseSent):
 				return nil
 			case err != nil:
 				return err
 			}
 		}
 		select {
-		case <-done:
+		case <-ctx.Done():
 			return nil
 		case <-time.After(cfg.await):
 			return context.DeadlineExceeded
-		case <-pongCh:
+		case <-pong:
 			ticker.Reset(cfg.period)
 		}
 	}

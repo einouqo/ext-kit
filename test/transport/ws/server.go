@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/transport/_service"
+	service "github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
@@ -24,13 +24,13 @@ func NewServerBinding(svc Service, opts ...ws.ServerOption) *ServerBinding {
 			svc.Bi,
 			decodeRequest,
 			encodeResponse,
-			sCloser,
+			serverClosure,
 			opts...,
 		),
 	}
 }
 
-func sCloser(_ context.Context, err error) (code ws.CloseCode, msg string, deadline time.Time) {
+func serverClosure(_ context.Context, err error) (code ws.CloseCode, msg string, deadline time.Time) {
 	if err != nil {
 		return ws.InternalServerErrCloseCode, err.Error(), time.Now().Add(time.Second)
 	}
