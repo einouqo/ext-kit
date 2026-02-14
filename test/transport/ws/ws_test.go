@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package ws
 
@@ -17,8 +16,8 @@ import (
 	"github.com/fasthttp/websocket"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/transport/_service"
-	"github.com/einouqo/ext-kit/test/transport/_util"
+	service "github.com/einouqo/ext-kit/test/transport/_service"
+	util "github.com/einouqo/ext-kit/test/transport/_util"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
@@ -212,7 +211,7 @@ func TestStreamWS_error(t *testing.T) {
 			if !ok {
 				t.Fatalf("error type: want %T, have %T (with %q)", &websocket.CloseError{}, err, err)
 			}
-			code, msg, _ := sCloser(ctx, errors.New(errMsg))
+			code, msg, _ := serverClosure(ctx, errors.New(errMsg))
 			target := &websocket.CloseError{
 				Code: int(code),
 				Text: msg,
@@ -503,7 +502,7 @@ func TestStreamWS_heartbeat_both(t *testing.T) {
 }
 
 func TestStreamWS_multi_clients(t *testing.T) {
-	if !_util.Race {
+	if !util.Race {
 		t.Fatal("requires -race flag")
 	}
 

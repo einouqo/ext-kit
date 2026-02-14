@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/einouqo/ext-kit/endpoint"
-	"github.com/einouqo/ext-kit/test/transport/_service"
+	service "github.com/einouqo/ext-kit/test/transport/_service"
 	"github.com/einouqo/ext-kit/transport/ws"
 )
 
@@ -20,12 +20,12 @@ func NewClientBinding(url url.URL, opts ...ws.ClientOption) *ClientBinding {
 			url,
 			encodeRequest,
 			decodeResponse,
-			cCloser,
+			clientClosure,
 			opts...,
 		).Endpoint(),
 	}
 }
 
-func cCloser(context.Context, error) (code ws.CloseCode, msg string, deadline time.Time) {
+func clientClosure(context.Context, error) (code ws.CloseCode, msg string, deadline time.Time) {
 	return ws.NormalClosureCloseCode, "", time.Now().Add(time.Second)
 }

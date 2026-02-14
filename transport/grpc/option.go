@@ -36,7 +36,7 @@ func WithClientFinalizer(finalize kitgrpc.ClientFinalizerFunc) ClientOption {
 
 func WithClientErrorHandler(handler transport.ErrorHandler) ClientOption {
 	return funcClientOption{f: func(o *clientOptions) {
-		o.errHandlers = append(o.errHandlers, handler)
+		o.errorHandlers = append(o.errorHandlers, handler)
 	}}
 }
 
@@ -72,7 +72,7 @@ func WithServerFinalizer(finalize kitgrpc.ServerFinalizerFunc) ServerOption {
 
 func WithServerErrorHandler(handler transport.ErrorHandler) ServerOption {
 	return funcServerOption{f: func(o *serverOptions) {
-		o.errHandlers = append(o.errHandlers, handler)
+		o.errorHandlers = append(o.errorHandlers, handler)
 	}}
 }
 

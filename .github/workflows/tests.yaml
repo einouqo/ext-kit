@@ -9,25 +9,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: prepare
         uses: ./.github/actions/prepare
       - name: run tests
-        run: go test -v -covermode atomic ./... --race --timeout 1m
+        run: go test -v -race -timeout=1m -covermode=atomic ./...
   integration:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: prepare
         uses: ./.github/actions/prepare
       - name: run tests
-        run: go test -v ./test/... --race --timeout 1m -tags=integration
+        run: go test -v -race -timeout=1m -tags=integration ./test/...
   ws-autobahn:
     runs-on: ubuntu-latest
     steps:
       - name: checkout repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: prepare
         uses: ./.github/actions/prepare
       - name: make report directory

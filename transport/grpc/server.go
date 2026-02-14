@@ -6,7 +6,6 @@ import (
 	"io"
 	"reflect"
 
-	"github.com/go-kit/kit/transport"
 	kitgrpc "github.com/go-kit/kit/transport/grpc"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
@@ -14,6 +13,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/einouqo/ext-kit/endpoint"
+	"github.com/einouqo/ext-kit/transport"
 )
 
 type HandlerUnary interface {
@@ -55,20 +55,18 @@ func NewServerUnary[IN, OUT any](
 	return s
 }
 
-func (srv ServerUnary[IN, OUT]) ServeUnary(ctx context.Context, req proto.Message) (ctxt context.Context, resp proto.Message, err error) {
-	if len(srv.opts.finalizer) > 0 {
+func (s *ServerUnary[IN, OUT]) ServeUnary(ctx context.Context, req proto.Message) (ctxt context.Context, resp proto.Message, err error) {
+	if len(s.opts.finalizer) > 0 {
 		defer func() {
-			for _, f := range srv.opts.finalizer {
+			for _, f := range s.opts.finalizer {
 				f(ctx, err)
 			}
 		}()
 	}
-	if len(srv.opts.errHandlers) > 0 {
+	if len(s.opts.errorHandlers) > 0 {
 		defer func() {
 			if err != nil {
-				for _, h := range srv.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
+				s.opts.errorHandlers.Handle(ctx, err)
 			}
 		}()
 	}
@@ -77,22 +75,22 @@ func (srv ServerUnary[IN, OUT]) ServeUnary(ctx context.Context, req proto.Messag
 	if !ok {
 		md = metadata.MD{}
 	}
-	for _, f := range srv.opts.before {
+	for _, f := range s.opts.before {
 		ctx = f(ctx, md)
 	}
 
-	in, err := srv.dec(ctx, req)
+	in, err := s.dec(ctx, req)
 	if err != nil {
 		return ctx, nil, err
 	}
 
-	out, err := srv.e(ctx, in)
+	out, err := s.e(ctx, in)
 	if err != nil {
 		return ctx, nil, err
 	}
 
 	mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
-	for _, f := range srv.opts.after {
+	for _, f := range s.opts.after {
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 	if len(mdHeader) > 0 {
@@ -101,7 +99,7 @@ func (srv ServerUnary[IN, OUT]) ServeUnary(ctx context.Context, req proto.Messag
 		}
 	}
 
-	resp, err = srv.enc(ctx, out)
+	resp, err = s.enc(ctx, out)
 	if err != nil {
 		return ctx, nil, err
 	}
@@ -138,22 +136,20 @@ func NewServerInnerStream[IN, OUT any](
 	return s
 }
 
-func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc.ServerStream) (ctx context.Context, err error) {
-	ctx = s.Context()
+func (s *ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, stream grpc.ServerStream) (ctx context.Context, err error) {
+	ctx = stream.Context()
 
-	if len(srv.opts.finalizer) > 0 {
+	if len(s.opts.finalizer) > 0 {
 		defer func() {
-			for _, f := range srv.opts.finalizer {
+			for _, f := range s.opts.finalizer {
 				f(ctx, err)
 			}
 		}()
 	}
-	if len(srv.opts.errHandlers) > 0 {
+	if len(s.opts.errorHandlers) > 0 {
 		defer func() {
 			if err != nil {
-				for _, h := range srv.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
+				s.opts.errorHandlers.Handle(ctx, err)
 			}
 		}()
 	}
@@ -162,22 +158,25 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 	if !ok {
 		md = metadata.MD{}
 	}
-	for _, f := range srv.opts.before {
+	for _, f := range s.opts.before {
 		ctx = f(ctx, md)
 	}
 
-	in, err := srv.dec(ctx, req)
+	in, err := s.dec(ctx, req)
 	if err != nil {
 		return ctx, err
 	}
 
-	receive, err := srv.e(ctx, in)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	receive, err := s.e(ctx, in)
 	if err != nil {
 		return ctx, err
 	}
 
 	mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
-	for _, f := range srv.opts.after {
+	for _, f := range s.opts.after {
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 
@@ -188,6 +187,7 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 				return err
 			}
 		}
+		defer cancel()
 		for {
 			out, err := receive()
 			switch {
@@ -196,11 +196,11 @@ func (srv ServerInnerStream[IN, OUT]) ServeInnerStream(req proto.Message, s grpc
 			case err != nil:
 				return err
 			}
-			msg, err := srv.enc(ctx, out)
+			msg, err := s.enc(ctx, out)
 			if err != nil {
 				return err
 			}
-			err = s.SendMsg(msg)
+			err = stream.SendMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
 				return io.ErrUnexpectedEOF
@@ -247,22 +247,20 @@ func NewServerOuterStream[RECEIVE proto.Message, IN, OUT any](
 	return s
 }
 
-func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx context.Context, err error) {
-	ctx = s.Context()
+func (s *ServerOuterStream[IN, OUT]) ServeOuterStream(stream grpc.ServerStream) (ctx context.Context, err error) {
+	ctx = stream.Context()
 
-	if len(srv.opts.finalizer) > 0 {
+	if len(s.opts.finalizer) > 0 {
 		defer func() {
-			for _, f := range srv.opts.finalizer {
+			for _, f := range s.opts.finalizer {
 				f(ctx, err)
 			}
 		}()
 	}
-	if len(srv.opts.errHandlers) > 0 {
+	if len(s.opts.errorHandlers) > 0 {
 		defer func() {
 			if err != nil {
-				for _, h := range srv.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
+				s.opts.errorHandlers.Handle(ctx, err)
 			}
 		}()
 	}
@@ -271,43 +269,49 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 	if !ok {
 		md = metadata.MD{}
 	}
-	for _, f := range srv.opts.before {
+	for _, f := range s.opts.before {
 		ctx = f(ctx, md)
 	}
 
-	inCh := make(chan IN)
-	doneCh := make(chan struct{})
+	done := make(chan struct{})
+	ins := make(chan IN)
 	group := errgroup.Group{}
 	group.Go(func() error {
-		defer close(inCh)
+		defer close(ins)
 		for {
-			msg := reflect.New(srv.receive).Interface().(proto.Message)
-			err := s.RecvMsg(msg)
+			msg := reflect.New(s.receive).Interface().(proto.Message)
+			err := stream.RecvMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
 				return nil
 			case err != nil:
 				return err
 			}
-			in, err := srv.dec(ctx, msg)
+			in, err := s.dec(ctx, msg)
 			if err != nil {
 				return err
 			}
 			select {
-			case <-doneCh:
+			case <-done:
 				return nil
-			case inCh <- in:
+			default:
+				// endpoint is not done, continue
+			}
+			select {
+			case <-done:
+				return nil
+			case ins <- in:
 			}
 		}
 	})
 	group.Go(func() error {
-		defer close(doneCh)
-		out, err := srv.e(ctx, inCh)
+		defer close(done)
+		out, err := s.e(ctx, ins)
 		if err != nil {
 			return err
 		}
 		mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
-		for _, f := range srv.opts.after {
+		for _, f := range s.opts.after {
 			ctx = f(ctx, &mdHeader, &mdTrailer)
 		}
 		if len(mdHeader) > 0 {
@@ -316,11 +320,11 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 			}
 		}
 
-		msg, err := srv.enc(ctx, out)
+		msg, err := s.enc(ctx, out)
 		if err != nil {
 			return err
 		}
-		err = s.SendMsg(msg)
+		err = stream.SendMsg(msg)
 		switch {
 		case errors.Is(err, io.EOF):
 			return nil
@@ -335,6 +339,7 @@ func (srv ServerOuterStream[IN, OUT]) ServeOuterStream(s grpc.ServerStream) (ctx
 		}
 		return nil
 	})
+
 	if err := group.Wait(); err != nil {
 		return ctx, err
 	}
@@ -346,13 +351,13 @@ type ServerBiStream[IN, OUT any] struct {
 	server[IN, OUT, endpoint.BiStream[IN, OUT]]
 }
 
-func NewServerBiStream[RECEIVE proto.Message, IN, OUT any](
+func NewServerBiStream[M proto.Message, IN, OUT any](
 	e endpoint.BiStream[IN, OUT],
 	dec DecodeFunc[IN],
 	enc EncodeFunc[OUT],
 	opts ...ServerOption,
 ) *ServerBiStream[IN, OUT] {
-	var receive RECEIVE
+	var receive M
 	s := &ServerBiStream[IN, OUT]{
 		server: server[IN, OUT, endpoint.BiStream[IN, OUT]]{
 			e:       e,
@@ -367,22 +372,20 @@ func NewServerBiStream[RECEIVE proto.Message, IN, OUT any](
 	return s
 }
 
-func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx context.Context, err error) {
-	ctx = s.Context()
+func (s *ServerBiStream[IN, OUT]) ServeBiStream(stream grpc.ServerStream) (ctx context.Context, err error) {
+	ctx = stream.Context()
 
-	if len(srv.opts.finalizer) > 0 {
+	if len(s.opts.finalizer) > 0 {
 		defer func() {
-			for _, f := range srv.opts.finalizer {
+			for _, f := range s.opts.finalizer {
 				f(ctx, err)
 			}
 		}()
 	}
-	if len(srv.opts.errHandlers) > 0 {
+	if len(s.opts.errorHandlers) > 0 {
 		defer func() {
 			if err != nil {
-				for _, h := range srv.opts.errHandlers {
-					h.Handle(ctx, err)
-				}
+				s.opts.errorHandlers.Handle(ctx, err)
 			}
 		}()
 	}
@@ -391,47 +394,55 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 	if !ok {
 		md = metadata.MD{}
 	}
-	for _, f := range srv.opts.before {
+	for _, f := range s.opts.before {
 		ctx = f(ctx, md)
 	}
 
-	inCh := make(chan IN)
-	receive, err := srv.e(ctx, inCh)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	ins := make(chan IN)
+	receive, err := s.e(ctx, ins)
 	if err != nil {
 		return ctx, err
 	}
 
 	mdHeader, mdTrailer := make(metadata.MD), make(metadata.MD)
-	for _, f := range srv.opts.after {
+	for _, f := range s.opts.after {
 		ctx = f(ctx, &mdHeader, &mdTrailer)
 	}
 
-	doneCh := make(chan struct{})
 	group := errgroup.Group{}
 	group.Go(func() error {
-		defer close(inCh)
+		defer close(ins)
 		for {
-			msg := reflect.New(srv.receive).Interface().(proto.Message)
-			err := s.RecvMsg(msg)
+			msg := reflect.New(s.receive).Interface().(proto.Message)
+			err := stream.RecvMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
 				return nil
 			case err != nil:
 				return err
 			}
-			in, err := srv.dec(ctx, msg)
+			in, err := s.dec(ctx, msg)
 			if err != nil {
 				return err
 			}
 			select {
-			case <-doneCh:
+			case <-ctx.Done():
 				return nil
-			case inCh <- in:
+			default:
+				// context is not done, continue
+			}
+			select {
+			case <-ctx.Done():
+				return nil
+			case ins <- in:
 			}
 		}
 	})
 	group.Go(func() error {
-		defer close(doneCh)
+		defer cancel()
 		if len(mdHeader) > 0 {
 			if err = grpc.SendHeader(ctx, mdHeader); err != nil {
 				return err
@@ -445,11 +456,11 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 			case err != nil:
 				return err
 			}
-			msg, err := srv.enc(ctx, out)
+			msg, err := s.enc(ctx, out)
 			if err != nil {
 				return err
 			}
-			err = s.SendMsg(msg)
+			err = stream.SendMsg(msg)
 			switch {
 			case errors.Is(err, io.EOF):
 				return nil
@@ -472,10 +483,10 @@ func (srv ServerBiStream[IN, OUT]) ServeBiStream(s grpc.ServerStream) (ctx conte
 }
 
 type serverOptions struct {
-	before      []kitgrpc.ServerRequestFunc
-	after       []kitgrpc.ServerResponseFunc
-	finalizer   []kitgrpc.ServerFinalizerFunc
-	errHandlers []transport.ErrorHandler
+	before        []kitgrpc.ServerRequestFunc
+	after         []kitgrpc.ServerResponseFunc
+	finalizer     []kitgrpc.ServerFinalizerFunc
+	errorHandlers transport.ErrorHandlers
 }
 
 type server[IN, OUT any, E endpoint.Endpoint[IN, OUT]] struct {

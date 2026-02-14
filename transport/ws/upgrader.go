@@ -7,49 +7,35 @@ import (
 	"github.com/fasthttp/websocket"
 )
 
+type ErrorWriter = func(w http.ResponseWriter, r *http.Request, status int, reason error)
+type CheckOrigin = func(r *http.Request) bool
+
 type Upgrader interface {
-	SetHandshakeTimeout(timeout time.Duration)
-	SetReadBufferSize(size int)
-	SetWriteBufferSize(size int)
-	SetWriteBufferPool(pool websocket.BufferPool)
+	SetHandshakeTimeout(time.Duration)
+	SetReadBufferSize(int)
+	SetWriteBufferSize(int)
+	SetWriteBufferPool(BufferPool)
 	SetSubprotocols(protocols []string)
-	SetErrorWriter(writer func(w http.ResponseWriter, r *http.Request, status int, reason error))
-	SetCheckOrigin(check func(r *http.Request) bool)
+	SetErrorWriter(ErrorWriter)
+	SetCheckOrigin(check CheckOrigin)
 	SetEnableCompression(enabled bool)
 }
 
 type upgrader struct {
-	*websocket.Upgrader
+	ws websocket.Upgrader
 }
 
-func (u upgrader) SetHandshakeTimeout(timeout time.Duration) {
-	u.HandshakeTimeout = timeout
-}
+var _ Upgrader = (*upgrader)(nil)
 
-func (u upgrader) SetReadBufferSize(size int) {
-	u.ReadBufferSize = size
-}
+func (u *upgrader) SetHandshakeTimeout(timeout time.Duration) { u.ws.HandshakeTimeout = timeout }
+func (u *upgrader) SetReadBufferSize(size int)                { u.ws.ReadBufferSize = size }
+func (u *upgrader) SetWriteBufferSize(size int)               { u.ws.WriteBufferSize = size }
+func (u *upgrader) SetWriteBufferPool(pool BufferPool)        { u.ws.WriteBufferPool = pool }
+func (u *upgrader) SetSubprotocols(protocols []string)        { u.ws.Subprotocols = protocols }
+func (u *upgrader) SetErrorWriter(w ErrorWriter)              { u.ws.Error = w }
+func (u *upgrader) SetCheckOrigin(check CheckOrigin)          { u.ws.CheckOrigin = check }
+func (u *upgrader) SetEnableCompression(enabled bool)         { u.ws.EnableCompression = enabled }
 
-func (u upgrader) SetWriteBufferSize(size int) {
-	u.WriteBufferSize = size
-}
-
-func (u upgrader) SetWriteBufferPool(pool websocket.BufferPool) {
-	u.WriteBufferPool = pool
-}
-
-func (u upgrader) SetSubprotocols(protocols []string) {
-	u.Subprotocols = protocols
-}
-
-func (u upgrader) SetErrorWriter(writer func(w http.ResponseWriter, r *http.Request, status int, reason error)) {
-	u.Error = writer
-}
-
-func (u upgrader) SetCheckOrigin(check func(r *http.Request) bool) {
-	u.CheckOrigin = check
-}
-
-func (u upgrader) SetEnableCompression(enabled bool) {
-	u.EnableCompression = enabled
+func (u *upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (*websocket.Conn, error) {
+	return u.ws.Upgrade(w, r, responseHeader)
 }
